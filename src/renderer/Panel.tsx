@@ -672,7 +672,7 @@ export default function Panel() {
             /* Normal header */
             <>
               <div>
-                <h1 className="text-lg font-semibold text-gradient">Canvas</h1>
+                <h1 className="text-lg font-semibold text-gradient">Canvas Companion</h1>
                 <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2">
                   <span className="inline-flex items-center gap-1">
                     <BookOpen className="w-3 h-3" /> {courseCount} courses
