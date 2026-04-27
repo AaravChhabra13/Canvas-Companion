@@ -27333,14 +27333,7 @@ var _eval = EvalError;
 var range = RangeError;
 var ref = ReferenceError;
 var syntax = SyntaxError;
-var type;
-var hasRequiredType;
-function requireType() {
-  if (hasRequiredType) return type;
-  hasRequiredType = 1;
-  type = TypeError;
-  return type;
-}
+var type = TypeError;
 var uri = URIError;
 var abs$1 = Math.abs;
 var floor$1 = Math.floor;
@@ -27586,7 +27579,7 @@ function requireCallBindApplyHelpers() {
   if (hasRequiredCallBindApplyHelpers) return callBindApplyHelpers;
   hasRequiredCallBindApplyHelpers = 1;
   var bind3 = functionBind;
-  var $TypeError2 = requireType();
+  var $TypeError2 = type;
   var $call2 = requireFunctionCall();
   var $actualApply = requireActualApply();
   callBindApplyHelpers = function callBindBasic(args) {
@@ -27659,7 +27652,7 @@ var $EvalError = _eval;
 var $RangeError = range;
 var $ReferenceError = ref;
 var $SyntaxError = syntax;
-var $TypeError$1 = requireType();
+var $TypeError$1 = type;
 var $URIError = uri;
 var abs = abs$1;
 var floor = floor$1;
@@ -27990,7 +27983,7 @@ var GetIntrinsic2 = getIntrinsic;
 var $defineProperty = GetIntrinsic2("%Object.defineProperty%", true);
 var hasToStringTag = requireShams()();
 var hasOwn$1 = hasown;
-var $TypeError = requireType();
+var $TypeError = type;
 var toStringTag = hasToStringTag ? Symbol.toStringTag : null;
 var esSetTostringtag = function setToStringTag(object, value) {
   var overrideIfSet = arguments.length > 2 && !!arguments[2] && arguments[2].force;
@@ -34145,6 +34138,7 @@ let tray = null;
 let panel = null;
 let onboardingWin = null;
 let lastBlurTime = 0;
+let panelBlocked = false;
 function makeTrayIcon() {
   const img = electron.nativeImage.createFromPath(
     path$1.join(process.env.APP_ROOT, "resources/icons/tray-icon.png")
@@ -34226,10 +34220,12 @@ function createOnboardingWindow() {
   }
   onboardingWin.on("closed", () => {
     onboardingWin = null;
+    panelBlocked = false;
   });
 }
 function showPanel() {
   if (!panel || !tray) return;
+  if (panelBlocked || onboardingWin) return;
   const trayBounds = tray.getBounds();
   const { width: pw } = panel.getBounds();
   const display = electron.screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y });
@@ -34263,11 +34259,15 @@ electron.app.whenReady().then(() => {
   const { triggerSync, isOnboardingComplete } = setupIPC(panel, {
     showPanel: () => showPanel(),
     closeOnboarding: () => {
+      panelBlocked = false;
       onboardingWin == null ? void 0 : onboardingWin.close();
       onboardingWin = null;
     },
     openOnboarding: () => openOnboardingWindow(),
-    hidePanel: () => panel == null ? void 0 : panel.hide(),
+    hidePanel: () => {
+      panel == null ? void 0 : panel.hide();
+      panelBlocked = true;
+    },
     onBadgeUpdate: () => {
     }
   });
@@ -34276,7 +34276,7 @@ electron.app.whenReady().then(() => {
   }
   electron.powerMonitor.on("resume", () => {
     if (isOnboarded()) triggerSync();
-    panel == null ? void 0 : panel.webContents.send("panel:shown");
+    if (!panelBlocked && !onboardingWin) panel == null ? void 0 : panel.webContents.send("panel:shown");
   });
   electron.app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true });
 });

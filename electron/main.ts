@@ -31,6 +31,7 @@ let tray: Tray | null = null
 let panel: BrowserWindow | null = null
 let onboardingWin: BrowserWindow | null = null
 let lastBlurTime = 0
+let panelBlocked = false
 
 // ── Tray icon ─────────────────────────────────────────────────────────────────
 
@@ -121,13 +122,14 @@ function createOnboardingWindow(): void {
     })
   }
 
-  onboardingWin.on('closed', () => { onboardingWin = null })
+  onboardingWin.on('closed', () => { onboardingWin = null; panelBlocked = false })
 }
 
 // ── Panel positioning ─────────────────────────────────────────────────────────
 
 function showPanel(): void {
   if (!panel || !tray) return
+  if (panelBlocked || onboardingWin) return
 
   const trayBounds = tray.getBounds()
   const { width: pw } = panel.getBounds()
@@ -173,9 +175,9 @@ app.whenReady().then(() => {
 
   const { triggerSync, isOnboardingComplete } = setupIPC(panel!, {
     showPanel: () => showPanel(),
-    closeOnboarding: () => { onboardingWin?.close(); onboardingWin = null },
+    closeOnboarding: () => { panelBlocked = false; onboardingWin?.close(); onboardingWin = null },
     openOnboarding: () => openOnboardingWindow(),
-    hidePanel: () => panel?.hide(),
+    hidePanel: () => { panel?.hide(); panelBlocked = true },
     onBadgeUpdate: () => {},
   })
 
@@ -185,7 +187,7 @@ app.whenReady().then(() => {
 
   powerMonitor.on('resume', () => {
     if (isOnboarded()) triggerSync()
-    panel?.webContents.send('panel:shown')
+    if (!panelBlocked && !onboardingWin) panel?.webContents.send('panel:shown')
   })
 
   app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
