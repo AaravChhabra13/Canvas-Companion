@@ -571,7 +571,7 @@ function GuideToken({ onBack, onSetup }: { onBack: () => void; onSetup: () => vo
         'Copy the token — you only see it once',
       ]} />
       <WarningBox>
-        UW students — your school has disabled this option. Use iCal or Session Cookie instead.
+        Check if your institution allows student PATs — many universities restrict this. Use iCal or Session Cookies instead.
       </WarningBox>
       <PrimaryButton onClick={onSetup}>Got it, set up API Token</PrimaryButton>
     </div>
@@ -645,6 +645,9 @@ function InputToken({
     <div className="flex flex-col gap-4">
       <BackButton onClick={onBack} />
       <h2 className="text-lg font-semibold">Paste your API Token</h2>
+      <p className="text-xs text-muted-foreground">
+        Before generating a token, check whether your institution's Canvas allows student Personal Access Tokens — some universities restrict or require faculty sponsorship for API access.
+      </p>
       <input
         type="url"
         value={baseUrl}
@@ -811,16 +814,16 @@ function CseSitesScreen({
       <button
         onClick={onAdd}
         disabled={!newUrl.trim() || !newCourse.trim()}
-        className="w-full py-2 rounded-xl text-xs font-medium text-primary-foreground disabled:opacity-40"
+        className="block mx-auto px-6 py-2 rounded-full text-xs font-medium text-primary-foreground disabled:opacity-40"
         style={{ background: 'var(--gradient-primary)' }}
       >
         Add Site
       </button>
 
-      <div className="flex flex-col items-center gap-3 mt-1">
+      <div className="flex flex-col items-center gap-3 mt-8">
         <button
           onClick={onContinue}
-          className="w-50 py-2.5 rounded-xl text-sm font-semibold text-primary-foreground"
+          className="w-50 py-2 rounded-xl text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 active:opacity-80"
           style={{ background: 'var(--gradient-primary)', boxShadow: 'var(--shadow-glow)' }}
         >
           Continue
