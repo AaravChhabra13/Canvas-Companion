@@ -31,7 +31,6 @@ let tray: Tray | null = null
 let panel: BrowserWindow | null = null
 let onboardingWin: BrowserWindow | null = null
 let lastBlurTime = 0
-let currentToday = 0
 
 // ── Tray icon ─────────────────────────────────────────────────────────────────
 
@@ -46,8 +45,6 @@ function makeTrayIcon(): Electron.NativeImage {
 function updateTrayBadge(): void {
   if (!tray) return
   tray.setImage(makeTrayIcon())
-  // Show today's count as a clean text label next to the icon; clear when zero
-  tray.setTitle(currentToday > 0 ? ` ${currentToday}` : '')
 }
 
 // ── Windows ───────────────────────────────────────────────────────────────────
@@ -179,10 +176,7 @@ app.whenReady().then(() => {
     closeOnboarding: () => { onboardingWin?.close(); onboardingWin = null },
     openOnboarding: () => openOnboardingWindow(),
     hidePanel: () => panel?.hide(),
-    onBadgeUpdate: (_overdue, today) => {
-      currentToday = today
-      updateTrayBadge()
-    },
+    onBadgeUpdate: () => {},
   })
 
   if (!isOnboardingComplete) {

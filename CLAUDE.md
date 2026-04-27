@@ -52,7 +52,7 @@ Read it before making any decisions about architecture or implementation.
   animated assignment rows, course color coding, overdue/today color labels,
   clear overdue button, settings as animated page, course drill-down
 
-## Phase 4 — Canvas data enrichment and standalone app (PLANNED)
+## Phase 4 — Canvas data enrichment and standalone app (IN PROGRESS)
 
 ### Note on authentication
 Canvas Companion is a local personal app — no backend, no server, no accounts.
