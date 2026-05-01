@@ -160,9 +160,7 @@ export default function Onboarding() {
   const [screen, setScreen] = useState<Screen>('welcome')
   const [dir, setDir] = useState(1)                // 1 = forward, -1 = back
 
-  const [iconDark, setIconDark] = useState('')
-  const [iconLight, setIconLight] = useState('')
-  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+  const [iconSrc, setIconSrc] = useState('')
 
   // iCal
   const [icalUrl, setIcalUrl] = useState('')
@@ -193,8 +191,11 @@ export default function Onboarding() {
   const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
-    setIconDark('/app-icon-dark.png')
-    setIconLight('/app-icon-light.png')
+    window.ipcRenderer.invoke('app:resources-path').then((resourcesPath: string) => {
+      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+      const iconFile = isDark ? 'app-icon-dark.png' : 'app-icon-light.png'
+      setIconSrc(`file://${resourcesPath}/icons/${iconFile}`)
+    })
   }, [])
 
   // ── Navigation ───────────────────────────────────────────────────────────
@@ -324,7 +325,6 @@ export default function Onboarding() {
 
   // ── Render ───────────────────────────────────────────────────────────────
 
-  const icon = isDark ? iconDark : iconLight
 
   return (
     <div className="w-screen h-screen aurora" style={{ WebkitUserSelect: 'none', userSelect: 'none' }}>
@@ -347,7 +347,7 @@ export default function Onboarding() {
               <ProgressDots screen={screen} />
 
               {screen === 'welcome' && (
-                <WelcomeScreen icon={icon} onNext={() => go('choose')} />
+                <WelcomeScreen icon={iconSrc} onNext={() => go('choose')} />
               )}
 
               {screen === 'choose' && (

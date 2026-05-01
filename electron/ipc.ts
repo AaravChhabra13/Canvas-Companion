@@ -268,6 +268,9 @@ export function setupIPC(
   // ── Notifications ─────────────────────────────────────────────────────────
   ipcMain.handle('notifications:request', () => { requestNotificationPermission(); return true })
 
+  // ── App paths ─────────────────────────────────────────────────────────────
+  ipcMain.handle('app:resources-path', () => process.resourcesPath)
+
   // ── Onboarding ────────────────────────────────────────────────────────────
   ipcMain.handle('onboarding:complete', async () => {
     const current = getSettings()
