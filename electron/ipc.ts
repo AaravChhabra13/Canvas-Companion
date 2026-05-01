@@ -153,12 +153,13 @@ export function setupIPC(
   })
 
   ipcMain.on('open-external', (_event, url: string) => {
-    console.log('[IPC] open-external received url:', url)
-    if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
-      shell.openExternal(url)
-    } else {
-      console.warn('[IPC] open-external blocked — not a valid http(s) URL:', url)
+    if (!url) return
+    let fullUrl = url
+    if (url.startsWith('/')) {
+      const settings = getSettings()
+      fullUrl = `${settings.canvasBaseUrl}${url}`
     }
+    if (fullUrl.startsWith('https://')) shell.openExternal(fullUrl)
   })
 
   // ── Token management ──────────────────────────────────────────────────────

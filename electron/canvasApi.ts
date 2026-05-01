@@ -146,6 +146,9 @@ export async function fetchPlannerItems(
       const submissionState: Assignment['submissionState'] =
         graded ? 'graded' : submitted ? 'submitted' : 'unsubmitted'
 
+      const rawUrl = item.html_url ?? item.plannable?.html_url ?? ''
+      const canvasUrl = rawUrl.startsWith('/') ? `${baseUrl}${rawUrl}` : rawUrl
+
       result.push({
         id: `rest-${item.plannable_type}-${item.plannable_id}`,
         title: item.plannable?.title ?? 'Untitled',
@@ -156,7 +159,7 @@ export async function fetchPlannerItems(
         type: plannerTypeToType(item.plannable_type),
         submissionState,
         pointsPossible: item.plannable?.points_possible ?? null,
-        canvasUrl: item.html_url ?? item.plannable?.html_url ?? '',
+        canvasUrl,
         isOverdue: dueAt ? new Date(dueAt) < now && submissionState === 'unsubmitted' : false,
         source: 'rest',
       })
