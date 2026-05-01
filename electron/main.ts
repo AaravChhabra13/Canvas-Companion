@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, nativeImage, nativeTheme, screen, powerMonitor } from 'electron'
+import { app, BrowserWindow, Menu, Tray, nativeImage, nativeTheme, screen, powerMonitor } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { setupIPC, isOnboarded } from './ipc'
@@ -167,6 +167,16 @@ app.whenReady().then(() => {
   tray = new Tray(makeTrayIcon())
   tray.setToolTip('Canvas Dashboard')
   tray.on('click', togglePanel)
+
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Canvas Companion', enabled: false },
+    { type: 'separator' },
+    { label: 'Open Dashboard', click: () => showPanel() },
+    { label: 'Preferences', click: () => showPanel() },
+    { type: 'separator' },
+    { label: 'Quit Canvas Companion', click: () => app.quit() },
+  ])
+  tray.setContextMenu(contextMenu)
 
   // Regenerate icon when menu bar appearance changes
   nativeTheme.on('updated', updateTrayBadge)

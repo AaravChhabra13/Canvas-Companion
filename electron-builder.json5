@@ -5,12 +5,12 @@
   "asar": true,
   "productName": "Canvas Companion",
   "directories": {
-    "output": "release/${version}"
+    "output": "release"
   },
   "files": [
-    "dist",
-    "dist-electron",
-    "resources"
+    "dist/**/*",
+    "dist-electron/**/*",
+    "resources/**/*"
   ],
   "mac": {
     "icon": "resources/icons/app-icon-dark.png",
