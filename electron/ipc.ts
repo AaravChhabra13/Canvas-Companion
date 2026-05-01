@@ -69,6 +69,9 @@ async function runSync(win: BrowserWindow, callbacks: SetupIPCCallbacks): Promis
     )
 
     assignments = result.assignments
+    console.log('[Sync] first 5 assignments canvasUrl check:',
+      assignments.slice(0, 5).map(a => ({ id: a.id, source: a.source, title: a.title.slice(0, 40), canvasUrl: a.canvasUrl }))
+    )
     if (result.courses.length > 0) store.set('courses', result.courses)
 
     syncState = { status: 'idle', lastSyncAt: new Date().toISOString() }
@@ -150,7 +153,12 @@ export function setupIPC(
   })
 
   ipcMain.on('open-external', (_event, url: string) => {
-    if (url.startsWith('https://')) shell.openExternal(url)
+    console.log('[IPC] open-external received url:', url)
+    if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
+      shell.openExternal(url)
+    } else {
+      console.warn('[IPC] open-external blocked — not a valid http(s) URL:', url)
+    }
   })
 
   // ── Token management ──────────────────────────────────────────────────────

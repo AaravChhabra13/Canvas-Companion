@@ -175,6 +175,7 @@ Structure:
 - Stored in electron-store keyed by assignment ID — survives syncs
 - Header shows "Today's load: ~4.5 hrs" summing estimates for today's assignments
 - Implementation: Record<assignmentId, estimateMinutes> in electron-store
+- Toggle in settings - off by default, user opts in
 
 ### Daily digest notification
 - Optional 8 AM notification summarizing the day

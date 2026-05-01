@@ -36,6 +36,7 @@ export function AssignmentItem({ assignment, index, completed, onToggleComplete 
   function openExternal(e: React.MouseEvent) {
     e.preventDefault()
     e.stopPropagation()
+    console.log('[AssignmentItem] ExternalLink clicked, canvasUrl:', assignment.canvasUrl)
     openUrl()
   }
 
