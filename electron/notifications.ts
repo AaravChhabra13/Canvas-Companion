@@ -1,5 +1,5 @@
 import { Notification, shell } from 'electron'
-import type { Assignment } from '../src/shared/types'
+import type { Assignment, DailyDigest } from '../src/shared/types'
 
 // Tracks which (assignment, leadTime) pairs have already fired this session.
 // This is in-memory only — resets on restart. That's intentional: the window
@@ -59,4 +59,75 @@ export function requestNotificationPermission(): void {
     silent: true,
   })
   n.show()
+}
+
+// ── Daily digest ──────────────────────────────────────────────────────────────
+
+let digestTimer: ReturnType<typeof setTimeout> | null = null
+let digestAssignments: Assignment[] = []
+
+export function updateDigestAssignments(assignments: Assignment[]): void {
+  digestAssignments = assignments
+}
+
+function msUntilNext(hour: number, minute: number): number {
+  const now = new Date()
+  const target = new Date()
+  target.setHours(hour, minute, 0, 0)
+  if (target.getTime() <= now.getTime()) target.setDate(target.getDate() + 1)
+  return target.getTime() - now.getTime()
+}
+
+export function scheduleDailyDigest(digest: DailyDigest | undefined): void {
+  if (digestTimer !== null) {
+    clearTimeout(digestTimer)
+    digestTimer = null
+  }
+  if (!digest?.enabled) return
+
+  const { hour, minute } = digest
+
+  function scheduleNext() {
+    digestTimer = setTimeout(() => {
+      fireDailyDigest(digestAssignments)
+      scheduleNext()
+    }, msUntilNext(hour, minute))
+  }
+
+  scheduleNext()
+}
+
+function fireDailyDigest(assignments: Assignment[]): void {
+  if (!Notification.isSupported()) return
+
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const todayEnd   = new Date(todayStart.getTime() + 86_400_000 - 1)
+  const tmrwStart  = new Date(todayEnd.getTime() + 1)
+  const tmrwEnd    = new Date(tmrwStart.getTime() + 86_400_000 - 1)
+
+  const overdue = assignments.filter(a =>
+    a.isOverdue && a.submissionState !== 'submitted' && a.submissionState !== 'graded'
+  ).length
+
+  const dueToday = assignments.filter(a => {
+    if (!a.dueAt || a.isOverdue) return false
+    const t = new Date(a.dueAt).getTime()
+    return t >= todayStart.getTime() && t <= todayEnd.getTime()
+  }).length
+
+  const dueTomorrow = assignments.filter(a => {
+    if (!a.dueAt) return false
+    const t = new Date(a.dueAt).getTime()
+    return t >= tmrwStart.getTime() && t <= tmrwEnd.getTime()
+  }).length
+
+  if (overdue + dueToday + dueTomorrow === 0) return
+
+  const parts: string[] = []
+  if (dueToday > 0) parts.push(`${dueToday} due today`)
+  if (dueTomorrow > 0) parts.push(`${dueTomorrow} due tomorrow`)
+  if (overdue > 0) parts.push(`${overdue} overdue`)
+
+  new Notification({ title: 'Canvas Companion', body: parts.join(' · '), silent: false }).show()
 }

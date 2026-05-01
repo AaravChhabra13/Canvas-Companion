@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { format, formatDistanceToNowStrict, isToday } from 'date-fns'
 import { ExternalLink, Clock } from 'lucide-react'
 import { motion } from 'framer-motion'
@@ -12,14 +13,34 @@ function getCourseColor(courseName: string): string {
   return colors[Math.abs(hash) % colors.length]
 }
 
+const ESTIMATE_OPTIONS: { label: string; minutes: number }[] = [
+  { label: '15m', minutes: 15 },
+  { label: '30m', minutes: 30 },
+  { label: '1hr', minutes: 60 },
+  { label: '2hr', minutes: 120 },
+  { label: '3hr', minutes: 180 },
+  { label: '5hr+', minutes: 300 },
+]
+
+function formatEstimate(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`
+  const h = minutes / 60
+  return `${h % 1 === 0 ? h : h.toFixed(1)}hr`
+}
+
 interface Props {
   assignment: Assignment
   index: number
   completed: boolean
   onToggleComplete: (id: string) => void
+  estimate?: number
+  onSetEstimate?: (id: string, minutes: number | null) => void
+  showEstimate?: boolean
 }
 
-export function AssignmentItem({ assignment, index, completed, onToggleComplete }: Props) {
+export function AssignmentItem({ assignment, index, completed, onToggleComplete, estimate, onSetEstimate, showEstimate = false }: Props) {
+  const [showPicker, setShowPicker] = useState(false)
+
   const due = assignment.dueAt ? new Date(assignment.dueAt) : null
   const overdue = !completed && assignment.isOverdue
   const dueToday = due ? isToday(due) : false
@@ -43,6 +64,22 @@ export function AssignmentItem({ assignment, index, completed, onToggleComplete 
   function handleCheckbox(e: React.MouseEvent) {
     e.stopPropagation()
     onToggleComplete(assignment.id)
+  }
+
+  function handleEstimateClick(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (onSetEstimate) setShowPicker(v => !v)
+  }
+
+  function handlePickOption(e: React.MouseEvent, minutes: number) {
+    e.stopPropagation()
+    if (!onSetEstimate) return
+    if (estimate === minutes) {
+      onSetEstimate(assignment.id, null)
+    } else {
+      onSetEstimate(assignment.id, minutes)
+    }
+    setShowPicker(false)
   }
 
   return (
@@ -107,13 +144,56 @@ export function AssignmentItem({ assignment, index, completed, onToggleComplete 
           >
             {assignment.title}
           </div>
-          {due && (
-            <div className="flex items-center gap-1.5 text-xs">
-              <Clock className="w-3 h-3 shrink-0" style={{ color: dueColor }} />
-              <span style={{ color: dueColor }}>
-                {format(due, 'MMM d, h:mm a')} · {overdue ? 'overdue ' : ''}
-                {formatDistanceToNowStrict(due, { addSuffix: true })}
-              </span>
+
+          {/* Due date row + estimate */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {due && (
+              <div className="flex items-center gap-1.5 text-xs">
+                <Clock className="w-3 h-3 shrink-0" style={{ color: dueColor }} />
+                <span style={{ color: dueColor }}>
+                  {format(due, 'MMM d, h:mm a')} · {overdue ? 'overdue ' : ''}
+                  {formatDistanceToNowStrict(due, { addSuffix: true })}
+                </span>
+              </div>
+            )}
+
+            {/* Estimate badge / button */}
+            {showEstimate && onSetEstimate && (
+              <button
+                onClick={handleEstimateClick}
+                className="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors"
+                style={{
+                  background: estimate ? 'hsl(35 90% 65% / 0.15)' : 'hsl(0 0% 100% / 0.06)',
+                  color: estimate ? 'hsl(35 90% 65%)' : 'hsl(0 0% 100% / 0.6)',
+                  border: estimate ? '1px solid hsl(35 90% 65% / 0.35)' : '1px solid hsl(0 0% 100% / 0.2)',
+                }}
+                title="Set time estimate"
+              >
+                {estimate ? formatEstimate(estimate) : '+ time'}
+              </button>
+            )}
+          </div>
+
+          {/* Inline estimate picker */}
+          {showPicker && onSetEstimate && (
+            <div
+              className="flex flex-wrap gap-1 mt-0.5"
+              onClick={e => e.stopPropagation()}
+            >
+              {ESTIMATE_OPTIONS.map(opt => (
+                <button
+                  key={opt.minutes}
+                  onClick={e => handlePickOption(e, opt.minutes)}
+                  className="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
+                  style={{
+                    background: estimate === opt.minutes ? 'hsl(212 90% 60% / 0.25)' : 'hsl(0 0% 100% / 0.08)',
+                    color: estimate === opt.minutes ? 'hsl(212 90% 70%)' : 'hsl(var(--muted-foreground))',
+                    border: estimate === opt.minutes ? '1px solid hsl(212 90% 60% / 0.4)' : '1px solid hsl(0 0% 100% / 0.1)',
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, nativeImage, nativeTheme, screen, powerMonitor } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, nativeTheme, screen, powerMonitor } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { setupIPC, isOnboarded } from './ipc'
@@ -195,6 +195,10 @@ app.whenReady().then(() => {
   nativeTheme.on('updated', updateTrayBadge)
 
   createPanel()
+
+  ipcMain.on('panel:resize', (_event, width: number, height: number) => {
+    panel?.setSize(width, height)
+  })
 
   const { triggerSync, isOnboardingComplete } = setupIPC(panel!, {
     showPanel: () => showPanel(),

@@ -49,6 +49,12 @@ export interface Course {
   hidden: boolean
 }
 
+export interface DailyDigest {
+  enabled: boolean
+  hour: number    // 0–23
+  minute: number
+}
+
 export interface Settings {
   canvasBaseUrl: string
   canvasIcalUrl: string
@@ -58,4 +64,6 @@ export interface Settings {
   notificationLeadTimes: number[]  // minutes before due date (e.g. 1440=24h, 120=2h, 30=30min)
   onboardingComplete: boolean
   hideOldOverdue: boolean
+  dailyDigest: DailyDigest
+  showTimeEstimates: boolean
 }

@@ -2,7 +2,12 @@ import { ipcMain, BrowserWindow, shell, app } from 'electron'
 import Store from 'electron-store'
 import { syncAll } from './sync'
 import { saveToken, deleteToken, hasToken, validateToken, getToken } from './canvasApi'
-import { checkAndFireNotifications, requestNotificationPermission } from './notifications'
+import {
+  checkAndFireNotifications,
+  requestNotificationPermission,
+  updateDigestAssignments,
+  scheduleDailyDigest,
+} from './notifications'
 import type { Assignment, Course, CseSiteEntry, PersonalTask, Settings, SyncState } from '../src/shared/types'
 
 interface StoreSchema {
@@ -11,6 +16,8 @@ interface StoreSchema {
   completedIds: string[]
   personalTasks: PersonalTask[]
   cseSiteUrls: CseSiteEntry[]
+  estimates: Record<string, number>  // assignmentId → minutes
+  appVersion: string
 }
 
 const SETTINGS_DEFAULTS: Settings = {
@@ -22,6 +29,8 @@ const SETTINGS_DEFAULTS: Settings = {
   notificationLeadTimes: [1440, 120, 30],  // 24 h, 2 h, 30 min
   onboardingComplete: false,
   hideOldOverdue: true,
+  dailyDigest: { enabled: false, hour: 8, minute: 0 },
+  showTimeEstimates: false,
 }
 
 // Initialized inside setupIPC (after app.ready) so app.getPath() is available
@@ -80,6 +89,7 @@ async function runSync(win: BrowserWindow, callbacks: SetupIPCCallbacks): Promis
     win.webContents.send('courses:data', store.get('courses'))
 
     checkAndFireNotifications(assignments, settings.notificationLeadTimes, prevLastSync)
+    updateDigestAssignments(assignments)
 
     // Compute badge counts for tray icon
     const now = new Date()
@@ -115,7 +125,7 @@ export function setupIPC(
   callbacks: SetupIPCCallbacks,
 ): SetupIPCResult {
   // Store is created here (not at module level) so app.getPath() is available
-  store = new Store<StoreSchema>({ name: "app-store", 
+  store = new Store<StoreSchema>({ name: "app-store",
     cwd: app.getPath('userData'),
     defaults: {
       settings: SETTINGS_DEFAULTS,
@@ -123,8 +133,32 @@ export function setupIPC(
       completedIds: [],
       personalTasks: [],
       cseSiteUrls: [],
+      estimates: {},
+      appVersion: '',
     },
   })
+
+  // ── First-launch / version-mismatch credential wipe ──────────────────────
+  // Compares the stored appVersion against the running binary version.
+  // A mismatch (including a missing value on a fresh install) means a new user
+  // may have installed from the DMG and inherited a previous user's store data.
+  // Wipe all credentials and reset onboarding so they start fresh.
+  // Non-sensitive preferences (intervals, lead times, etc.) are kept.
+  {
+    const currentVersion = app.getVersion()
+    const storedVersion = store.get('appVersion') as string
+    if (!storedVersion || storedVersion !== currentVersion) {
+      const current = getSettings()
+      store.set('settings', {
+        ...current,
+        canvasIcalUrl: '',
+        canvasSessionCookie: '',
+        onboardingComplete: false,
+      })
+      deleteToken()
+      store.set('appVersion', currentVersion)
+    }
+  }
 
   // ── Assignments & sync ────────────────────────────────────────────────────
   ipcMain.handle('assignments:get', () => assignments)
@@ -144,6 +178,7 @@ export function setupIPC(
     const updated: Settings = { ...current, ...patch }
     store.set('settings', updated)
     if (patch.syncIntervalMinutes !== undefined) startSyncTimer(win, callbacks)
+    if (patch.dailyDigest !== undefined) scheduleDailyDigest(updated.dailyDigest)
     const urlChanged =
       (patch.canvasIcalUrl !== undefined && patch.canvasIcalUrl !== current.canvasIcalUrl) ||
       (patch.canvasBaseUrl !== undefined && patch.canvasBaseUrl !== current.canvasBaseUrl) ||
@@ -216,6 +251,20 @@ export function setupIPC(
     return entries
   })
 
+  // ── Time estimates ────────────────────────────────────────────────────────
+  ipcMain.handle('estimates:get', () => store.get('estimates') as Record<string, number>)
+  ipcMain.handle('estimates:set', (_event, id: string, minutes: number | null) => {
+    const current = store.get('estimates') as Record<string, number>
+    if (minutes === null) {
+      const { [id]: _removed, ...rest } = current
+      store.set('estimates', rest)
+      return rest
+    }
+    const updated = { ...current, [id]: minutes }
+    store.set('estimates', updated)
+    return updated
+  })
+
   // ── Notifications ─────────────────────────────────────────────────────────
   ipcMain.handle('notifications:request', () => { requestNotificationPermission(); return true })
 
@@ -247,6 +296,7 @@ export function setupIPC(
   if (isOnboardingComplete) {
     runSync(win, callbacks)
     startSyncTimer(win, callbacks)
+    scheduleDailyDigest(settings.dailyDigest)
   }
 
   return {

@@ -2,14 +2,15 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   RefreshCw, Settings as SettingsIcon, BookOpen, Inbox,
-  CheckCheck, ChevronRight, ArrowLeft, Save, EyeOff, Bell, Plus, Plug,
+  CheckCheck, ChevronRight, ChevronLeft, ArrowLeft, Save, EyeOff, Bell, Plus, Plug,
+  Calendar as CalendarIcon, Clock,
 } from 'lucide-react'
-import { formatDistanceToNowStrict } from 'date-fns'
+import { formatDistanceToNowStrict, isToday, format } from 'date-fns'
 import { AssignmentItem } from './AssignmentItem'
 import { groupAssignments, GROUP_ORDER, GROUP_LABELS } from '../lib/groupAssignments'
 import type { Assignment, Course, CseSiteEntry, PersonalTask, Settings, SyncState } from '../shared/types'
 
-// ── Personal task helper ──────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function personalToAssignment(t: PersonalTask): Assignment {
   const now = new Date()
@@ -27,6 +28,16 @@ function personalToAssignment(t: PersonalTask): Assignment {
     isOverdue: t.dueAt !== null && new Date(t.dueAt) < now,
     source: 'manual',
   }
+}
+
+function dateKey(d: Date): string {
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+
+function formatLoad(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`
+  const h = minutes / 60
+  return `${h % 1 === 0 ? h : h.toFixed(1)} hr${h !== 1 ? 's' : ''}`
 }
 
 // ── Tab button ────────────────────────────────────────────────────────────────
@@ -53,11 +64,14 @@ const TabButton = ({
 const TODAY_COLOR = 'hsl(35 80% 60%)'
 
 const GroupedList = ({
-  groups, completed, onToggle, compact = false,
+  groups, completed, onToggle, estimates, onSetEstimate, showEstimate, compact = false,
 }: {
   groups: ReturnType<typeof groupAssignments>
   completed: Set<string>
   onToggle: (id: string) => void
+  estimates: Record<string, number>
+  onSetEstimate: (id: string, minutes: number | null) => void
+  showEstimate: boolean
   compact?: boolean
 }) => (
   <div className={`${compact ? '' : 'p-4'} flex flex-col gap-5`}>
@@ -85,6 +99,9 @@ const GroupedList = ({
                 index={i}
                 completed={completed.has(a.id)}
                 onToggleComplete={onToggle}
+                estimate={estimates[a.id]}
+                onSetEstimate={onSetEstimate}
+                showEstimate={showEstimate}
               />
             ))}
           </div>
@@ -106,12 +123,204 @@ const EmptyState = () => (
     </div>
     <div>
       <h3 className="text-base font-semibold mb-1">No assignments found</h3>
-      <p className="text-xs text-muted-foreground leading-relaxed max-w-[280px]">
+      <p className="text-xs text-muted-foreground leading-relaxed max-w-70">
         All clear! No upcoming assignments right now.
       </p>
     </div>
   </div>
 )
+
+// ── Calendar view ─────────────────────────────────────────────────────────────
+
+function getDayBg(data: { count: number; assignments: Assignment[] } | undefined): string {
+  if (!data || data.count === 0) return 'transparent'
+  if (data.assignments.some(a => a.isOverdue)) return 'hsl(0 85% 50% / 0.85)'
+  if (data.count >= 5) return 'hsl(10 90% 52% / 0.7)'
+  if (data.count >= 3) return 'hsl(25 95% 58% / 0.5)'
+  return 'hsl(38 95% 65% / 0.3)'
+}
+
+function CalendarView({
+  assignments,
+  completed,
+  onToggle,
+  estimates,
+  onSetEstimate,
+  showEstimate,
+}: {
+  assignments: Assignment[]
+  completed: Set<string>
+  onToggle: (id: string) => void
+  estimates: Record<string, number>
+  onSetEstimate: (id: string, minutes: number | null) => void
+  showEstimate: boolean
+}) {
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const n = new Date()
+    return new Date(n.getFullYear(), n.getMonth(), 1)
+  })
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+
+  const heatmap = useMemo(() => {
+    const map = new Map<string, { count: number; points: number; assignments: Assignment[] }>()
+    for (const a of assignments) {
+      if (!a.dueAt) continue
+      const d = new Date(a.dueAt)
+      const k = dateKey(d)
+      const existing = map.get(k) ?? { count: 0, points: 0, assignments: [] }
+      existing.count += 1
+      existing.points += a.pointsPossible ?? 0
+      existing.assignments.push(a)
+      map.set(k, existing)
+    }
+    return map
+  }, [assignments])
+
+  const calendarDays = useMemo(() => {
+    const year = currentMonth.getFullYear()
+    const month = currentMonth.getMonth()
+    const firstDow = new Date(year, month, 1).getDay()
+    const daysInMonth = new Date(year, month + 1, 0).getDate()
+    const cells: Array<{ date: Date | null; k: string }> = []
+    for (let i = 0; i < firstDow; i++) cells.push({ date: null, k: `e${i}` })
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(year, month, d)
+      cells.push({ date, k: dateKey(date) })
+    }
+    return cells
+  }, [currentMonth])
+
+  const today = new Date()
+  const todayK = dateKey(today)
+
+  const monthLabel = format(currentMonth, 'MMMM yyyy')
+
+  const prevMonth = () => setCurrentMonth(m => new Date(m.getFullYear(), m.getMonth() - 1, 1))
+  const nextMonth = () => setCurrentMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1))
+
+  const selectedData = selectedKey ? heatmap.get(selectedKey) : null
+
+  return (
+    <div className="p-4 flex flex-col gap-3">
+      {/* Month navigation */}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={prevMonth}
+          className="p-1 rounded-lg hover:bg-white/8 transition-colors text-muted-foreground hover:text-foreground"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <span className="text-sm font-semibold">{monthLabel}</span>
+        <button
+          onClick={nextMonth}
+          className="p-1 rounded-lg hover:bg-white/8 transition-colors text-muted-foreground hover:text-foreground"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Day-of-week headers */}
+      <div className="grid grid-cols-7">
+        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (
+          <div key={d} className="text-center text-[10px] text-muted-foreground/60 py-0.5">{d}</div>
+        ))}
+      </div>
+
+      {/* Calendar grid */}
+      <div className="grid grid-cols-7 gap-0.5">
+        {calendarDays.map(({ date, k }) => {
+          if (!date) return <div key={k} className="aspect-square" />
+
+          const data = heatmap.get(k)
+          const isT = k === todayK
+          const isSel = k === selectedKey
+          const bg = getDayBg(data)
+          const badges = data?.assignments ?? []
+
+          return (
+            <button
+              key={k}
+              onClick={() => setSelectedKey(isSel ? null : k)}
+              className="aspect-square rounded-lg p-1 flex flex-col items-start gap-0.5 text-left transition-colors overflow-hidden"
+              style={{
+                background: isSel ? 'hsl(212 90% 60% / 0.25)' : bg,
+                outline: isSel ? '1px solid hsl(212 90% 60% / 0.5)' : 'none',
+              }}
+            >
+              {/* Day number */}
+              {isT ? (
+                <span
+                  className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0"
+                  style={{ background: 'hsl(var(--primary))', color: 'white' }}
+                >
+                  {date.getDate()}
+                </span>
+              ) : (
+                <span className="text-[10px] font-medium leading-none text-foreground/80">
+                  {date.getDate()}
+                </span>
+              )}
+
+              {/* Assignment micro-badges */}
+              {badges.slice(0, 2).map((a, i) => {
+                const code = a.courseName.split(' ')[0]
+                const t = a.title.length > 8 ? a.title.slice(0, 8) + '…' : a.title
+                return (
+                  <span
+                    key={i}
+                    className="text-[9px] leading-tight truncate w-full text-foreground/60"
+                    title={`${a.courseName} — ${a.title}`}
+                  >
+                    {code} · {t}
+                  </span>
+                )
+              })}
+              {badges.length > 2 && (
+                <span className="text-[9px] text-foreground/40">+{badges.length - 2}</span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Legend */}
+      <div className="flex items-center gap-3 justify-center flex-wrap">
+        {[
+          { color: 'hsl(38 95% 65% / 0.3)', label: '1–2' },
+          { color: 'hsl(25 95% 58% / 0.5)', label: '3–4' },
+          { color: 'hsl(10 90% 52% / 0.7)', label: '5+' },
+          { color: 'hsl(0 85% 50% / 0.85)', label: 'overdue' },
+        ].map(({ color, label }) => (
+          <div key={label} className="flex items-center gap-1">
+            <div className="w-2.5 h-2.5 rounded-sm" style={{ background: color }} />
+            <span className="text-[9px] text-muted-foreground/60">{label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Day detail panel */}
+      {selectedData && selectedData.count > 0 && (
+        <div className="flex flex-col gap-2 pt-2 border-t border-white/5">
+          <p className="text-[11px] text-muted-foreground px-1">
+            {selectedData.count} assignment{selectedData.count !== 1 ? 's' : ''} due
+          </p>
+          {selectedData.assignments.map((a, i) => (
+            <AssignmentItem
+              key={a.id}
+              assignment={a}
+              index={i}
+              completed={completed.has(a.id)}
+              onToggleComplete={onToggle}
+              estimate={estimates[a.id]}
+              onSetEstimate={onSetEstimate}
+              showEstimate={showEstimate}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ── Settings panel (inline page, no overlay) ──────────────────────────────────
 
@@ -121,6 +330,26 @@ const NOTIF_OPTIONS = [
   { label: '30 min',   value: 30   },
   { label: '15 min',   value: 15   },
 ]
+
+function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: (v: boolean) => void }) {
+  return (
+    <button
+      role="switch" aria-checked={enabled}
+      onClick={() => onToggle(!enabled)}
+      style={{
+        flexShrink: 0,
+        width: 40,
+        height: 24,
+        background: enabled ? 'hsl(212 90% 60%)' : 'hsl(0 0% 100% / 0.15)',
+      }}
+      className="relative rounded-full transition-colors overflow-hidden"
+    >
+      <span
+        className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0'}`}
+      />
+    </button>
+  )
+}
 
 function SettingsPanel({
   settings, courses, hideOldOverdue, onToggleHideOldOverdue, onSave,
@@ -152,6 +381,20 @@ function SettingsPanel({
   const [newCseUrl, setNewCseUrl] = useState('')
   const [newCseCourseName, setNewCseCourseName] = useState('')
   const [cseSaving, setCseSaving] = useState(false)
+
+  // Productivity
+  const [showTimeEstimatesSetting, setShowTimeEstimatesSetting] = useState(settings.showTimeEstimates ?? false)
+
+  // Daily digest
+  const digest = settings.dailyDigest ?? { enabled: false, hour: 8, minute: 0 }
+  const [digestEnabled, setDigestEnabled] = useState(digest.enabled)
+  const [digestHour, setDigestHour] = useState(() => {
+    const h = digest.hour
+    if (h === 0) return 12
+    if (h > 12) return h - 12
+    return h
+  })
+  const [digestAmPm, setDigestAmPm] = useState<'AM' | 'PM'>(digest.hour < 12 ? 'AM' : 'PM')
 
   useEffect(() => {
     window.ipcRenderer.invoke('token:check').then((v: unknown) => setHasExistingToken(v as boolean))
@@ -215,12 +458,17 @@ function SettingsPanel({
 
   async function handleSave() {
     setSaving(true)
+    const actualHour = digestAmPm === 'AM'
+      ? (digestHour === 12 ? 0 : digestHour)
+      : (digestHour === 12 ? 12 : digestHour + 12)
     await onSave(
       {
         canvasBaseUrl: baseUrl.trim() || 'https://canvas.uw.edu',
         canvasIcalUrl: icalUrl.trim(),
         syncIntervalMinutes: interval,
         notificationLeadTimes: [...leadTimes],
+        dailyDigest: { enabled: digestEnabled, hour: actualHour, minute: 0 },
+        showTimeEstimates: showTimeEstimatesSetting,
       },
       localCourses,
     )
@@ -332,21 +580,7 @@ function SettingsPanel({
             <div className="text-[11px] text-muted-foreground leading-snug">Auto-hide assignments overdue by more than 24h</div>
           </div>
         </div>
-        <button
-          role="switch" aria-checked={hideOldOverdue}
-          onClick={() => onToggleHideOldOverdue(!hideOldOverdue)}
-          style={{
-            flexShrink: 0,
-            width: 40,
-            height: 24,
-            background: hideOldOverdue ? 'hsl(212 90% 60%)' : 'hsl(0 0% 100% / 0.15)',
-          }}
-          className="relative rounded-full transition-colors overflow-hidden"
-        >
-          <span
-            className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${hideOldOverdue ? 'translate-x-4' : 'translate-x-0'}`}
-          />
-        </button>
+        <Toggle enabled={hideOldOverdue} onToggle={onToggleHideOldOverdue} />
       </div>
 
       {/* Notifications */}
@@ -363,6 +597,53 @@ function SettingsPanel({
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Productivity */}
+      <div className="glass-inset rounded-xl p-3 overflow-hidden flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
+          <div className="min-w-0">
+            <div className="text-sm font-medium">Show time estimates</div>
+            <div className="text-[11px] text-muted-foreground leading-snug">Add time tags to assignments to track your daily workload</div>
+          </div>
+        </div>
+        <Toggle enabled={showTimeEstimatesSetting} onToggle={setShowTimeEstimatesSetting} />
+      </div>
+
+      {/* Daily digest */}
+      <div className="glass-inset rounded-xl p-3 flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Daily digest</div>
+              <div className="text-[11px] text-muted-foreground leading-snug">Morning summary of your assignments</div>
+            </div>
+          </div>
+          <Toggle enabled={digestEnabled} onToggle={setDigestEnabled} />
+        </div>
+        {digestEnabled && (
+          <div className="flex items-center gap-2 pl-6">
+            <select
+              value={digestHour}
+              onChange={e => setDigestHour(Number(e.target.value))}
+              className="glass-inset rounded-lg px-2 py-1 text-xs text-foreground outline-none"
+            >
+              {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(h => (
+                <option key={h} value={h}>{h}:00</option>
+              ))}
+            </select>
+            <select
+              value={digestAmPm}
+              onChange={e => setDigestAmPm(e.target.value as 'AM' | 'PM')}
+              className="glass-inset rounded-lg px-2 py-1 text-xs text-foreground outline-none"
+            >
+              <option value="AM">AM</option>
+              <option value="PM">PM</option>
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Courses */}
@@ -400,7 +681,6 @@ function SettingsPanel({
           Add your CSE course websites to pull assignments directly from course pages
         </p>
 
-        {/* Existing entries */}
         {cseSiteUrls.length > 0 && (
           <div className="flex flex-col gap-1.5">
             {cseSiteUrls.map((entry, i) => (
@@ -421,7 +701,6 @@ function SettingsPanel({
           </div>
         )}
 
-        {/* Add new entry */}
         <input
           type="url" value={newCseUrl} onChange={e => setNewCseUrl(e.target.value)}
           placeholder="https://courses.cs.washington.edu/courses/cseXXX/26sp/"
@@ -504,6 +783,8 @@ const SETTINGS_DEFAULTS: Settings = {
   notificationLeadTimes: [1440, 120, 30],
   onboardingComplete: true,
   hideOldOverdue: true,
+  dailyDigest: { enabled: false, hour: 8, minute: 0 },
+  showTimeEstimates: false,
 }
 
 export default function Panel() {
@@ -513,8 +794,9 @@ export default function Panel() {
   const [courses, setCourses]             = useState<Course[]>([])
   const [completedIds, setCompletedIds]   = useState<Set<string>>(new Set())
   const [personalTasks, setPersonalTasks] = useState<PersonalTask[]>([])
+  const [estimates, setEstimates]         = useState<Record<string, number>>({})
   const [showSettings, setShowSettings]   = useState(false)
-  const [tab, setTab]                     = useState<'assignments' | 'courses'>('assignments')
+  const [tab, setTab]                     = useState<'assignments' | 'courses' | 'calendar'>('assignments')
   const [selectedCourse, setSelectedCourse] = useState<string | null>(null)
   const [hideOldOverdue, setHideOldOverdue] = useState(true)
   const [showAddTask, setShowAddTask]     = useState(false)
@@ -531,6 +813,7 @@ export default function Panel() {
     window.ipcRenderer.invoke('courses:get').then((c: unknown) => setCourses(c as Course[]))
     window.ipcRenderer.invoke('completed:get').then((ids: unknown) => setCompletedIds(new Set(ids as string[])))
     window.ipcRenderer.invoke('tasks:get').then((t: unknown) => setPersonalTasks(t as PersonalTask[]))
+    window.ipcRenderer.invoke('estimates:get').then((e: unknown) => setEstimates(e as Record<string, number>))
   }, [])
 
   // ── Push subscriptions ───────────────────────────────────────────────────
@@ -557,6 +840,15 @@ export default function Panel() {
     }
   }, [])
 
+  // ── Panel resize when switching to/from Calendar tab ─────────────────────
+  useEffect(() => {
+    if (tab === 'calendar') {
+      window.ipcRenderer.send('panel:resize', 480, 640)
+    } else {
+      window.ipcRenderer.send('panel:resize', 340, 520)
+    }
+  }, [tab])
+
   // ── Actions ──────────────────────────────────────────────────────────────
   const triggerSync = useCallback(() => window.ipcRenderer.send('sync:trigger'), [])
 
@@ -572,6 +864,11 @@ export default function Panel() {
   const handleToggleComplete = useCallback(async (id: string) => {
     const updated = await window.ipcRenderer.invoke('completed:toggle', id) as string[]
     setCompletedIds(new Set(updated))
+  }, [])
+
+  const handleSetEstimate = useCallback(async (id: string, minutes: number | null) => {
+    const updated = await window.ipcRenderer.invoke('estimates:set', id, minutes) as Record<string, number>
+    setEstimates(updated)
   }, [])
 
   const handleAddTask = useCallback(async (title: string, dueAtLocal: string) => {
@@ -637,18 +934,36 @@ export default function Panel() {
 
   const courseGroups = useMemo(() => groupAssignments(courseAssignments), [courseAssignments])
 
+  // Today's load: sum estimates for today's non-overdue assignments
+  const todayLoad = useMemo(() => {
+    const todayItems = visibleAssignments.filter(a => a.dueAt && isToday(new Date(a.dueAt)) && !a.isOverdue)
+    let total = 0
+    let hasAny = false
+    for (const a of todayItems) {
+      const mins = estimates[a.id]
+      if (mins) { total += mins; hasAny = true }
+    }
+    return hasAny ? total : null
+  }, [visibleAssignments, estimates])
+
   const handleToggleHideOldOverdue = useCallback(async (v: boolean) => {
     setHideOldOverdue(v)
     await window.ipcRenderer.invoke('settings:set', { hideOldOverdue: v })
   }, [])
 
-  // Change 4: clear ALL overdue at once
   const clearOverdue = useCallback(async () => {
     for (const id of overdueIds) await handleToggleComplete(id)
   }, [overdueIds, handleToggleComplete])
 
+  const showTimeEstimates = settings.showTimeEstimates ?? false
+
   const loading = syncState.status === 'syncing'
   const lastFetched = syncState.lastSyncAt ? new Date(syncState.lastSyncAt) : null
+
+  function switchTab(next: 'assignments' | 'courses' | 'calendar') {
+    setTab(next)
+    setSelectedCourse(null)
+  }
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
@@ -658,7 +973,6 @@ export default function Panel() {
         {/* ── Header — changes when settings is open ── */}
         <header className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-white/5 shrink-0">
           {showSettings ? (
-            /* Settings header: back arrow + title */
             <div className="flex items-center gap-2 w-full">
               <button
                 onClick={() => setShowSettings(false)}
@@ -669,11 +983,10 @@ export default function Panel() {
               <h2 className="text-base font-semibold">Settings</h2>
             </div>
           ) : (
-            /* Normal header */
             <>
               <div>
                 <h1 className="text-lg font-semibold text-gradient">Canvas Companion</h1>
-                <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2">
+                <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
                   <span className="inline-flex items-center gap-1">
                     <BookOpen className="w-3 h-3" /> {courseCount} courses
                   </span>
@@ -681,6 +994,14 @@ export default function Panel() {
                   <span className="inline-flex items-center gap-1">
                     <Inbox className="w-3 h-3" /> {upcomingCount} upcoming
                   </span>
+                  {showTimeEstimates && todayLoad !== null && (
+                    <>
+                      <span className="opacity-30">·</span>
+                      <span className="inline-flex items-center gap-1" style={{ color: 'hsl(35 80% 65%)' }}>
+                        <Clock className="w-3 h-3" /> ~{formatLoad(todayLoad)}
+                      </span>
+                    </>
+                  )}
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -707,19 +1028,23 @@ export default function Panel() {
         {/* ── Tabs (hidden in settings) ── */}
         {!showSettings && visibleAssignments.length > 0 && (
           <div className="px-4 pt-3 flex items-center gap-1 shrink-0">
-            <TabButton active={tab === 'assignments'} onClick={() => { setTab('assignments'); setSelectedCourse(null) }}>
+            <TabButton active={tab === 'assignments'} onClick={() => switchTab('assignments')}>
               Assignments
             </TabButton>
-            <TabButton active={tab === 'courses'} onClick={() => { setTab('courses'); setSelectedCourse(null) }}>
+            <TabButton active={tab === 'courses'} onClick={() => switchTab('courses')}>
               Courses <span className="ml-1 text-[10px] opacity-60">{courseCount}</span>
+            </TabButton>
+            <TabButton active={tab === 'calendar'} onClick={() => switchTab('calendar')}>
+              <span className="inline-flex items-center gap-1">
+                <CalendarIcon className="w-3 h-3" /> Calendar
+              </span>
             </TabButton>
           </div>
         )}
 
-        {/* ── Body — AnimatePresence switches between settings and main ── */}
+        {/* ── Body ── */}
         <AnimatePresence mode="wait" initial={false}>
           {showSettings ? (
-            /* Change 2: Settings as an animated in-place page */
             <motion.div
               key="settings"
               initial={{ x: 24, opacity: 0 }}
@@ -747,8 +1072,24 @@ export default function Panel() {
             >
               {visibleAssignments.length === 0 ? (
                 <EmptyState />
+              ) : tab === 'calendar' ? (
+                <CalendarView
+                  assignments={visibleAssignments}
+                  completed={completedIds}
+                  onToggle={handleToggleComplete}
+                  estimates={estimates}
+                  onSetEstimate={handleSetEstimate}
+                  showEstimate={showTimeEstimates}
+                />
               ) : tab === 'assignments' ? (
-                <GroupedList groups={groups} completed={completedIds} onToggle={handleToggleComplete} />
+                <GroupedList
+                  groups={groups}
+                  completed={completedIds}
+                  onToggle={handleToggleComplete}
+                  estimates={estimates}
+                  onSetEstimate={handleSetEstimate}
+                  showEstimate={showTimeEstimates}
+                />
               ) : selectedCourse ? (
                 /* Course drill-down */
                 <div className="p-4 flex flex-col gap-3">
@@ -769,7 +1110,15 @@ export default function Panel() {
                   {courseAssignments.length === 0 ? (
                     <div className="text-xs text-muted-foreground py-6 text-center">No assignments.</div>
                   ) : (
-                    <GroupedList groups={courseGroups} completed={completedIds} onToggle={handleToggleComplete} compact />
+                    <GroupedList
+                      groups={courseGroups}
+                      completed={completedIds}
+                      onToggle={handleToggleComplete}
+                      estimates={estimates}
+                      onSetEstimate={handleSetEstimate}
+                      showEstimate={showTimeEstimates}
+                      compact
+                    />
                   )}
                 </div>
               ) : (
@@ -818,7 +1167,6 @@ export default function Panel() {
                 : 'Not synced'}
             </span>
             <div className="flex items-center gap-1 shrink-0">
-              {/* Change 4: Clear overdue button — exactly like canvas-companion */}
               {overdueIds.length > 0 && (
                 <button
                   onClick={clearOverdue}

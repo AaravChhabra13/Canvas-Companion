@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Calendar, Key, Shield, ArrowLeft } from 'lucide-react'
+import { Calendar, Key, Shield, ArrowLeft, Bell } from 'lucide-react'
 import type { Course, CseSiteEntry } from '../shared/types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -11,17 +11,21 @@ type Screen =
   | 'guide-ical' | 'guide-token' | 'guide-cookie'
   | 'input-ical' | 'input-token' | 'input-cookie'
   | 'cse-sites'
+  | 'daily-digest'
   | 'syncing'
 
-// Progress step for dots (1–5)
+// Progress step for dots (1–6)
 const STEP: Record<Screen, number> = {
   welcome: 1,
   choose: 2,
   'guide-ical': 3, 'guide-token': 3, 'guide-cookie': 3,
   'input-ical': 3, 'input-token': 3, 'input-cookie': 3,
   'cse-sites': 4,
-  syncing: 5,
+  'daily-digest': 5,
+  syncing: 6,
 }
+
+const TOTAL_STEPS = 6
 
 // ── Animation ─────────────────────────────────────────────────────────────────
 
@@ -38,7 +42,7 @@ function ProgressDots({ screen }: { screen: Screen }) {
   const current = STEP[screen]
   return (
     <div className="flex items-center justify-center gap-1.5 mb-6">
-      {[1, 2, 3, 4, 5].map(n => (
+      {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map(n => (
         <div
           key={n}
           className="rounded-full transition-all duration-200"
@@ -130,13 +134,32 @@ function StepList({ steps }: { steps: string[] }) {
   )
 }
 
+function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: (v: boolean) => void }) {
+  return (
+    <button
+      role="switch" aria-checked={enabled}
+      onClick={() => onToggle(!enabled)}
+      style={{
+        flexShrink: 0,
+        width: 48,
+        height: 28,
+        background: enabled ? 'hsl(212 90% 60%)' : 'hsl(0 0% 100% / 0.15)',
+      }}
+      className="relative rounded-full transition-colors overflow-hidden"
+    >
+      <span
+        className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'}`}
+      />
+    </button>
+  )
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function Onboarding() {
   const [screen, setScreen] = useState<Screen>('welcome')
   const [dir, setDir] = useState(1)                // 1 = forward, -1 = back
 
-  // Icons
   const [iconDark, setIconDark] = useState('')
   const [iconLight, setIconLight] = useState('')
   const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -160,13 +183,16 @@ export default function Onboarding() {
   const [cseSites, setCseSites] = useState<CseSiteEntry[]>([])
   const [newCseUrl, setNewCseUrl] = useState('')
   const [newCseCourse, setNewCseCourse] = useState('')
+  // Daily digest
+  const [digestEnabled, setDigestEnabled] = useState(false)
+  const [digestHour, setDigestHour] = useState(8)   // 1–12
+  const [digestAmPm, setDigestAmPm] = useState<'AM' | 'PM'>('AM')
   // Sync result
   const [syncCount, setSyncCount] = useState<number | null>(null)
   const [syncError, setSyncError] = useState('')
   const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
-    // Load icons as data URLs — public/ folder copies served by Vite
     setIconDark('/app-icon-dark.png')
     setIconLight('/app-icon-light.png')
   }, [])
@@ -262,6 +288,18 @@ export default function Onboarding() {
     if (cseSites.length > 0) {
       await window.ipcRenderer.invoke('cse-sites:save', cseSites)
     }
+    go('daily-digest')
+  }
+
+  // ── Daily digest helpers ─────────────────────────────────────────────────
+
+  async function saveDigestAndContinue() {
+    const actualHour = digestAmPm === 'AM'
+      ? (digestHour === 12 ? 0 : digestHour)
+      : (digestHour === 12 ? 12 : digestHour + 12)
+    await window.ipcRenderer.invoke('settings:set', {
+      dailyDigest: { enabled: digestEnabled, hour: actualHour, minute: 0 },
+    })
     runFinalSync()
   }
 
@@ -308,12 +346,10 @@ export default function Onboarding() {
             >
               <ProgressDots screen={screen} />
 
-              {/* ── Screen 1: Welcome ── */}
               {screen === 'welcome' && (
                 <WelcomeScreen icon={icon} onNext={() => go('choose')} />
               )}
 
-              {/* ── Screen 2: Choose method ── */}
               {screen === 'choose' && (
                 <ChooseScreen
                   onSetup={method => go(`input-${method}`)}
@@ -321,98 +357,73 @@ export default function Onboarding() {
                 />
               )}
 
-              {/* ── Screen 3a: iCal guide ── */}
               {screen === 'guide-ical' && (
-                <GuideIcal
-                  onBack={() => go('choose', -1)}
-                  onSetup={() => go('input-ical')}
-                />
+                <GuideIcal onBack={() => go('choose', -1)} onSetup={() => go('input-ical')} />
               )}
 
-              {/* ── Screen 3b: Token guide ── */}
               {screen === 'guide-token' && (
-                <GuideToken
-                  onBack={() => go('choose', -1)}
-                  onSetup={() => go('input-token')}
-                />
+                <GuideToken onBack={() => go('choose', -1)} onSetup={() => go('input-token')} />
               )}
 
-              {/* ── Screen 3c: Cookie guide ── */}
               {screen === 'guide-cookie' && (
-                <GuideCookie
-                  onBack={() => go('choose', -1)}
-                  onSetup={() => go('input-cookie')}
-                />
+                <GuideCookie onBack={() => go('choose', -1)} onSetup={() => go('input-cookie')} />
               )}
 
-              {/* ── Screen 4a: iCal input ── */}
               {screen === 'input-ical' && (
                 <InputIcal
-                  url={icalUrl}
-                  setUrl={setIcalUrl}
-                  connecting={connecting}
-                  error={connectError}
-                  onBack={() => go('choose', -1)}
-                  onConnect={connectIcal}
+                  url={icalUrl} setUrl={setIcalUrl}
+                  connecting={connecting} error={connectError}
+                  onBack={() => go('choose', -1)} onConnect={connectIcal}
                 />
               )}
 
-              {/* ── Screen 4b: Token input ── */}
               {screen === 'input-token' && (
                 <InputToken
-                  baseUrl={tokenUrl}
-                  setBaseUrl={setTokenUrl}
-                  token={token}
-                  setToken={v => { setToken(v); setTokenStatus('idle') }}
-                  showToken={showToken}
-                  setShowToken={setShowToken}
-                  status={tokenStatus}
-                  error={tokenError}
-                  connecting={connecting}
-                  connectError={connectError}
-                  onBack={() => go('choose', -1)}
-                  onConnect={connectToken}
+                  baseUrl={tokenUrl} setBaseUrl={setTokenUrl}
+                  token={token} setToken={v => { setToken(v); setTokenStatus('idle') }}
+                  showToken={showToken} setShowToken={setShowToken}
+                  status={tokenStatus} error={tokenError}
+                  connecting={connecting} connectError={connectError}
+                  onBack={() => go('choose', -1)} onConnect={connectToken}
                 />
               )}
 
-              {/* ── Screen 4c: Cookie input ── */}
               {screen === 'input-cookie' && (
                 <InputCookie
-                  cookie={cookie}
-                  setCookie={setCookie}
-                  showCookie={showCookie}
-                  setShowCookie={setShowCookie}
-                  connecting={connecting}
-                  error={connectError}
-                  onBack={() => go('choose', -1)}
-                  onConnect={connectCookie}
+                  cookie={cookie} setCookie={setCookie}
+                  showCookie={showCookie} setShowCookie={setShowCookie}
+                  connecting={connecting} error={connectError}
+                  onBack={() => go('choose', -1)} onConnect={connectCookie}
                 />
               )}
 
-              {/* ── Screen 5: CSE sites ── */}
               {screen === 'cse-sites' && (
                 <CseSitesScreen
                   courses={courses}
                   sites={cseSites}
-                  newUrl={newCseUrl}
-                  setNewUrl={setNewCseUrl}
-                  newCourse={newCseCourse}
-                  setNewCourse={setNewCseCourse}
-                  onAdd={addCseSite}
-                  onRemove={removeCseSite}
-                  onSkip={runFinalSync}
+                  newUrl={newCseUrl} setNewUrl={setNewCseUrl}
+                  newCourse={newCseCourse} setNewCourse={setNewCseCourse}
+                  onAdd={addCseSite} onRemove={removeCseSite}
+                  onSkip={() => go('daily-digest')}
                   onContinue={finishCseSites}
                 />
               )}
 
-              {/* ── Screen 6: Syncing / result ── */}
+              {screen === 'daily-digest' && (
+                <DailyDigestScreen
+                  enabled={digestEnabled} setEnabled={setDigestEnabled}
+                  hour={digestHour} setHour={setDigestHour}
+                  amPm={digestAmPm} setAmPm={setDigestAmPm}
+                  onBack={() => go('cse-sites', -1)}
+                  onSkip={runFinalSync}
+                  onContinue={saveDigestAndContinue}
+                />
+              )}
+
               {screen === 'syncing' && (
                 <SyncingScreen
-                  syncing={syncing}
-                  count={syncCount}
-                  error={syncError}
-                  onRetry={runFinalSync}
-                  onFinish={handleFinish}
+                  syncing={syncing} count={syncCount} error={syncError}
+                  onRetry={runFinalSync} onFinish={handleFinish}
                 />
               )}
             </motion.div>
@@ -613,13 +624,10 @@ function InputIcal({
       <BackButton onClick={onBack} />
       <h2 className="text-lg font-semibold">Paste your Calendar Feed URL</h2>
       <input
-        type="url"
-        value={url}
-        onChange={e => setUrl(e.target.value)}
+        type="url" value={url} onChange={e => setUrl(e.target.value)}
         onKeyDown={e => e.key === 'Enter' && onConnect()}
         placeholder="https://canvas.uw.edu/feeds/calendars/..."
-        spellCheck={false}
-        className={inputCls}
+        spellCheck={false} className={inputCls}
         style={{ WebkitUserSelect: 'text', userSelect: 'text' } as React.CSSProperties}
       />
       {error && <p className="text-xs" style={{ color: 'hsl(var(--danger))' }}>{error}</p>}
@@ -649,22 +657,16 @@ function InputToken({
         Before generating a token, check whether your institution's Canvas allows student Personal Access Tokens — some universities restrict or require faculty sponsorship for API access.
       </p>
       <input
-        type="url"
-        value={baseUrl}
-        onChange={e => setBaseUrl(e.target.value)}
-        placeholder="https://canvas.uw.edu"
-        spellCheck={false}
-        className={inputCls}
+        type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
+        placeholder="https://canvas.uw.edu" spellCheck={false} className={inputCls}
         style={{ WebkitUserSelect: 'text', userSelect: 'text' } as React.CSSProperties}
       />
       <div className="relative">
         <input
           type={showToken ? 'text' : 'password'}
-          value={token}
-          onChange={e => setToken(e.target.value)}
+          value={token} onChange={e => setToken(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && onConnect()}
-          placeholder="Paste your token here"
-          spellCheck={false}
+          placeholder="Paste your token here" spellCheck={false}
           className={`${inputCls} pr-14`}
           style={{ WebkitUserSelect: 'text', userSelect: 'text' } as React.CSSProperties}
         />
@@ -699,18 +701,15 @@ function InputCookie({
       <h2 className="text-lg font-semibold">Paste your Session Cookie</h2>
       <div className="relative">
         <textarea
-          value={cookie}
-          onChange={e => setCookie(e.target.value)}
+          value={cookie} onChange={e => setCookie(e.target.value)}
           placeholder="Paste the Cookie header value here"
-          rows={4}
-          spellCheck={false}
+          rows={4} spellCheck={false}
           className={`${inputCls} resize-none pr-14`}
           style={{ WebkitUserSelect: 'text', userSelect: 'text', fontFamily: 'monospace', fontSize: 11 } as React.CSSProperties}
         />
         <button
           onClick={() => setShowCookie(!showCookie)}
           className="absolute right-3 top-3 text-[11px] text-muted-foreground hover:text-foreground"
-          style={{ filter: showCookie ? 'none' : 'blur(0)' }}
         >
           {showCookie ? 'Hide' : 'Show'}
         </button>
@@ -774,19 +773,15 @@ function CseSitesScreen({
       )}
 
       <input
-        type="url"
-        value={newUrl}
-        onChange={e => setNewUrl(e.target.value)}
+        type="url" value={newUrl} onChange={e => setNewUrl(e.target.value)}
         placeholder="https://courses.cs.washington.edu/courses/cse123/26sp/"
-        spellCheck={false}
-        className={inputCls}
+        spellCheck={false} className={inputCls}
         style={{ WebkitUserSelect: 'text', userSelect: 'text' } as React.CSSProperties}
       />
 
       {courses.length > 0 ? (
         <select
-          value={newCourse}
-          onChange={e => setNewCourse(e.target.value)}
+          value={newCourse} onChange={e => setNewCourse(e.target.value)}
           className={`${inputCls} appearance-auto`}
         >
           <option value="">Select matching Canvas course…</option>
@@ -796,12 +791,9 @@ function CseSitesScreen({
         </select>
       ) : (
         <input
-          type="text"
-          value={newCourse}
-          onChange={e => setNewCourse(e.target.value)}
+          type="text" value={newCourse} onChange={e => setNewCourse(e.target.value)}
           placeholder="Course name (e.g. CSE 123)"
-          spellCheck={false}
-          className={inputCls}
+          spellCheck={false} className={inputCls}
           onKeyDown={e => e.key === 'Enter' && onAdd()}
           style={{ WebkitUserSelect: 'text', userSelect: 'text' } as React.CSSProperties}
         />
@@ -835,6 +827,95 @@ function CseSitesScreen({
           Skip
         </button>
       </div>
+    </div>
+  )
+}
+
+function DailyDigestScreen({
+  enabled, setEnabled, hour, setHour, amPm, setAmPm, onBack, onSkip, onContinue,
+}: {
+  enabled: boolean; setEnabled: (v: boolean) => void
+  hour: number; setHour: (v: number) => void
+  amPm: 'AM' | 'PM'; setAmPm: (v: 'AM' | 'PM') => void
+  onBack: () => void; onSkip: () => void; onContinue: () => void
+}) {
+  const previewLabel = `${hour}:00 ${amPm}`
+
+  return (
+    <div className="flex flex-col gap-5">
+      <BackButton onClick={onBack} />
+
+      <div className="flex flex-col items-center text-center gap-3">
+        <div
+          className="w-12 h-12 rounded-2xl flex items-center justify-center"
+          style={{ background: 'hsl(var(--primary) / 0.15)', color: 'hsl(var(--primary))' }}
+        >
+          <Bell className="w-6 h-6" />
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold mb-1">Daily digest notifications</h2>
+          <p className="text-xs text-muted-foreground leading-relaxed max-w-xs">
+            Get a morning summary of what is due today, tomorrow, and any overdue assignments.
+          </p>
+        </div>
+      </div>
+
+      {/* Toggle row */}
+      <div className="glass-inset rounded-2xl p-4 flex items-center justify-between gap-4">
+        <div>
+          <div className="text-sm font-medium">Enable daily digest</div>
+          <div className="text-xs text-muted-foreground mt-0.5">Fires once a day at your chosen time</div>
+        </div>
+        <Toggle enabled={enabled} onToggle={setEnabled} />
+      </div>
+
+      {/* Time picker */}
+      {enabled && (
+        <div className="glass-inset rounded-2xl p-4 flex flex-col gap-3">
+          <div className="text-xs uppercase tracking-wider text-muted-foreground">Notify me at</div>
+          <div className="flex items-center gap-3">
+            <select
+              value={hour}
+              onChange={e => setHour(Number(e.target.value))}
+              className="flex-1 glass-inset rounded-xl px-3 py-2 text-sm text-foreground outline-none"
+            >
+              {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(h => (
+                <option key={h} value={h}>{h}:00</option>
+              ))}
+            </select>
+            <select
+              value={amPm}
+              onChange={e => setAmPm(e.target.value as 'AM' | 'PM')}
+              className="glass-inset rounded-xl px-3 py-2 text-sm text-foreground outline-none"
+            >
+              <option value="AM">AM</option>
+              <option value="PM">PM</option>
+            </select>
+          </div>
+        </div>
+      )}
+
+      {/* Notification preview */}
+      <div
+        className="rounded-2xl p-4 flex flex-col gap-1"
+        style={{ background: 'hsl(0 0% 100% / 0.06)', border: '1px solid hsl(0 0% 100% / 0.1)' }}
+      >
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+          Preview {enabled ? `— fires at ${previewLabel}` : '— disabled'}
+        </div>
+        <div className="text-xs font-semibold text-foreground">Canvas Companion</div>
+        <div className={`text-xs ${enabled ? 'text-foreground/80' : 'text-muted-foreground/50'}`}>
+          {enabled ? '3 due today · 2 due tomorrow · 1 overdue' : 'Daily digest is off'}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 mt-2">
+        <PrimaryButton onClick={onContinue}>
+          {enabled ? 'Enable & Continue' : 'Continue'}
+        </PrimaryButton>
+        <SecondaryButton onClick={onSkip}>Skip</SecondaryButton>
+      </div>
+
     </div>
   )
 }
