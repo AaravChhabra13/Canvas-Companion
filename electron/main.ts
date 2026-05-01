@@ -132,18 +132,28 @@ function showPanel(): void {
   if (panelBlocked || onboardingWin) return
 
   const trayBounds = tray.getBounds()
-  const { width: pw } = panel.getBounds()
-  const display = screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y })
-  const db = display.bounds
 
-  let x = Math.round(trayBounds.x + trayBounds.width / 2 - pw / 2)
-  const y = trayBounds.y + trayBounds.height + 4
+  if (trayBounds.width === 0) {
+    const { width } = screen.getPrimaryDisplay().workAreaSize
+    panel.setPosition(width - 360, 30)
+  } else {
+    const { width: pw } = panel.getBounds()
+    const display = screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y })
+    const db = display.bounds
 
-  if (x + pw > db.x + db.width) x = db.x + db.width - pw
-  if (x < db.x) x = db.x
+    let x = Math.round(trayBounds.x + trayBounds.width / 2 - pw / 2)
+    const y = trayBounds.y + trayBounds.height + 4
 
-  panel.setPosition(x, y, false)
+    if (x + pw > db.x + db.width) x = db.x + db.width - pw
+    if (x < db.x) x = db.x
+
+    panel.setPosition(x, y, false)
+  }
+
   panel.show()
+  panel.setAlwaysOnTop(true, 'floating')
+  panel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  panel.setFullScreenable(false)
   panel.focus()
   panel.webContents.send('panel:shown')
 }
@@ -166,7 +176,6 @@ app.whenReady().then(() => {
 
   tray = new Tray(makeTrayIcon())
   tray.setToolTip('Canvas Dashboard')
-  tray.on('click', togglePanel)
 
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Canvas Companion', enabled: false },
@@ -176,7 +185,11 @@ app.whenReady().then(() => {
     { type: 'separator' },
     { label: 'Quit Canvas Companion', click: () => app.quit() },
   ])
-  tray.setContextMenu(contextMenu)
+
+  tray.on('click', togglePanel)
+  tray.on('right-click', () => {
+    tray!.popUpContextMenu(contextMenu)
+  })
 
   // Regenerate icon when menu bar appearance changes
   nativeTheme.on('updated', updateTrayBadge)
