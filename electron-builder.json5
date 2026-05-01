@@ -12,6 +12,10 @@
     "dist-electron/**/*",
     "resources/**/*"
   ],
+  "extraResources": [
+    { "from": "resources/icons/app-icon-dark.png",       "to": "icons/app-icon-dark.png" },
+    { "from": "resources/icons/icon_option_2_light.png", "to": "icons/app-icon-light.png" }
+  ],
   "mac": {
     "icon": "resources/icons/app-icon-dark.png",
     "category": "public.app-category.education",
