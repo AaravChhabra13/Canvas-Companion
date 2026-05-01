@@ -31,6 +31,7 @@ let tray: Tray | null = null
 let panel: BrowserWindow | null = null
 let onboardingWin: BrowserWindow | null = null
 let lastBlurTime = 0
+let lastClickTime = 0
 let panelBlocked = false
 
 // ── Tray icon ─────────────────────────────────────────────────────────────────
@@ -77,6 +78,7 @@ function createPanel(): void {
   }
 
   panel.on('blur', () => {
+    if (Date.now() - lastClickTime < 350) return
     lastBlurTime = Date.now()
     panel?.hide()
   })
@@ -150,17 +152,17 @@ function showPanel(): void {
     panel.setPosition(x, y, false)
   }
 
-  panel.show()
   panel.setAlwaysOnTop(true, 'floating')
   panel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   panel.setFullScreenable(false)
-  panel.focus()
+  panel.show()
+  setTimeout(() => panel?.focus(), 50)
   panel.webContents.send('panel:shown')
 }
 
 function togglePanel(): void {
   if (!panel) return
-  if (Date.now() - lastBlurTime < 200) return
+  if (Date.now() - lastBlurTime < 350) return
   panel.isVisible() ? panel.hide() : showPanel()
 }
 
@@ -186,7 +188,7 @@ app.whenReady().then(() => {
     { label: 'Quit Canvas Companion', click: () => app.quit() },
   ])
 
-  tray.on('click', togglePanel)
+  tray.on('click', () => { lastClickTime = Date.now(); togglePanel() })
   tray.on('right-click', () => {
     tray!.popUpContextMenu(contextMenu)
   })
