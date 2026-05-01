@@ -5,6 +5,8 @@ import Onboarding from './renderer/Onboarding'
 // and the default (no hash) for the main panel. Keeps a single Vite entry point.
 export default function App() {
   const hash = window.location.hash
-  if (hash === '#onboarding') return <Onboarding />
+  console.log('[App] window.location.hash:', hash, '| href:', window.location.href)
+  const isOnboarding = hash === '#onboarding' || hash.startsWith('#onboarding')
+  if (isOnboarding) return <Onboarding />
   return <Panel />
 }

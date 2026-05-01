@@ -269,7 +269,7 @@ export function setupIPC(
   ipcMain.handle('notifications:request', () => { requestNotificationPermission(); return true })
 
   // ── App paths ─────────────────────────────────────────────────────────────
-  ipcMain.handle('app:resources-path', () => process.resourcesPath)
+  ipcMain.handle('app:resources-path', () => ({ resourcesPath: process.resourcesPath, isDev: !!process.env.VITE_DEV_SERVER_URL }))
 
   // ── Onboarding ────────────────────────────────────────────────────────────
   ipcMain.handle('onboarding:complete', async () => {

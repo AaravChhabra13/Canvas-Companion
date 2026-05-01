@@ -191,11 +191,18 @@ export default function Onboarding() {
   const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
-    window.ipcRenderer.invoke('app:resources-path').then((resourcesPath: string) => {
-      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-      const iconFile = isDark ? 'app-icon-dark.png' : 'app-icon-light.png'
-      setIconSrc(`file://${resourcesPath}/icons/${iconFile}`)
-    })
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const iconFile = isDark ? 'app-icon-dark.png' : 'app-icon-light.png'
+
+    if (window.ipcRenderer) {
+      window.ipcRenderer.invoke('app:resources-path').then(({ resourcesPath, isDev }: { resourcesPath: string; isDev: boolean }) => {
+        setIconSrc(isDev ? `/icons/${iconFile}` : `file://${resourcesPath}/icons/${iconFile}`)
+      }).catch(() => {
+        setIconSrc(`/icons/${iconFile}`)
+      })
+    } else {
+      setIconSrc(`/icons/${iconFile}`)
+    }
   }, [])
 
   // ── Navigation ───────────────────────────────────────────────────────────

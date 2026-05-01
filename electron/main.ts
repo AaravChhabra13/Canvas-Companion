@@ -63,7 +63,7 @@ function createPanel(): void {
     vibrancy: 'under-window',
     visualEffectState: 'active',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.mjs'),
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -101,7 +101,7 @@ function createOnboardingWindow(): void {
     skipTaskbar: false,
     alwaysOnTop: true,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.mjs'),
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
