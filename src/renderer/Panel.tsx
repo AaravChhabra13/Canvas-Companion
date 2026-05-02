@@ -291,12 +291,12 @@ function SnoozeContextMenu({
 
 // ── Calendar view ─────────────────────────────────────────────────────────────
 
-function getHeatmapStyle(count: number, hasOverdue: boolean): React.CSSProperties {
-  if (hasOverdue) return { background: 'rgba(185, 28, 28, 0.85)', borderRadius: '6px' }
-  if (count === 0) return { background: 'transparent' }
-  if (count <= 2) return { background: 'rgba(245, 158, 11, 0.25)', borderRadius: '6px' }
-  if (count <= 4) return { background: 'rgba(249, 115, 22, 0.45)', borderRadius: '6px' }
-  return { background: 'rgba(239, 68, 68, 0.65)', borderRadius: '6px' }
+function getDayBackground(count: number, hasOverdue: boolean): string {
+  if (hasOverdue) return 'rgba(185, 28, 28, 0.85)'
+  if (count === 0) return 'transparent'
+  if (count <= 2) return 'rgba(245, 158, 11, 0.25)'
+  if (count <= 4) return 'rgba(249, 115, 22, 0.45)'
+  return 'rgba(239, 68, 68, 0.65)'
 }
 
 function CalendarView({
@@ -381,7 +381,6 @@ function CalendarView({
           const isT = k === todayK
           const isSel = k === selectedKey
           const badges = data?.assignments ?? []
-          const heatStyle = getHeatmapStyle(badges.length, badges.some(a => a.isOverdue))
 
           return (
             <button
@@ -390,7 +389,7 @@ function CalendarView({
               className="aspect-square p-1 flex flex-col items-start gap-0.5 text-left transition-colors overflow-hidden"
               style={isSel
                 ? { background: 'hsl(212 90% 60% / 0.25)', borderRadius: '6px', outline: '1px solid hsl(212 90% 60% / 0.5)' }
-                : { ...heatStyle, outline: 'none' }
+                : { background: getDayBackground(badges.length, badges.some(a => a.isOverdue)), borderRadius: '6px', outline: 'none' }
               }
             >
               {isT ? (
