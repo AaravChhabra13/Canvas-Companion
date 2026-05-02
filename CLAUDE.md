@@ -124,7 +124,7 @@ Key files:
 - Unsigned build — right-click Open first time to bypass Gatekeeper
 - release/ in .gitignore so DMG never committed to GitHub
 
-## Phase 5 — Smart deadline intelligence (PLANNED)
+## Phase 5 — Smart deadline intelligence (COMPLETE)
 
 ### Calendar tab
 - Add a third tab called Calendar alongside Assignments and Courses
