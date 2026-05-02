@@ -6,3 +6,4 @@ release/
 *.app
 .DS_Store
 canvas-companion-main
+dist-electron/
