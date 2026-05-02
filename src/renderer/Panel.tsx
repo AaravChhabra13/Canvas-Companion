@@ -822,6 +822,9 @@ export default function Panel() {
     const onStatus  = (_: unknown, s: SyncState)    => setSyncState(s)
     const onCourses = (_: unknown, c: Course[])     => setCourses(c)
     const onShown   = () => {
+      setTab('assignments')
+      setSelectedCourse(null)
+      setShowSettings(false)
       window.ipcRenderer.invoke('assignments:get').then((d: unknown) => setAssignments(d as Assignment[]))
       window.ipcRenderer.invoke('sync:status:get').then((s: unknown) => setSyncState(s as SyncState))
       window.ipcRenderer.invoke('courses:get').then((c: unknown) => setCourses(c as Course[]))

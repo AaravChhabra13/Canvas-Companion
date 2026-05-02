@@ -199,7 +199,21 @@ app.whenReady().then(() => {
   createPanel()
 
   ipcMain.on('panel:resize', (_event, width: number, height: number) => {
-    panel?.setSize(width, height)
+    if (!panel || !tray) return
+    panel.setSize(width, height)
+
+    const trayBounds = tray.getBounds()
+    const panelBounds = panel.getBounds()
+    const display = screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y })
+    const db = display.bounds
+
+    let x = Math.round(trayBounds.x + trayBounds.width / 2 - panelBounds.width / 2)
+    const y = trayBounds.y + trayBounds.height + 4
+
+    if (x + panelBounds.width > db.x + db.width) x = db.x + db.width - panelBounds.width
+    if (x < db.x) x = db.x
+
+    panel.setPosition(x, y)
   })
 
   const { triggerSync, isOnboardingComplete } = setupIPC(panel!, {
