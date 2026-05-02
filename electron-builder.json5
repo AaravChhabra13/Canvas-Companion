@@ -25,6 +25,7 @@
     "artifactName": "${productName}-Mac-${version}-Installer.${ext}"
   },
   "dmg": {
+    "icon": "resources/icons/dmg-icon.icns",
     "writeUpdateInfo": false,
     "artifactName": "Canvas Companion-Mac-${version}-Installer.dmg",
     "window": {
