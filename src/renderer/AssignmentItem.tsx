@@ -36,9 +36,15 @@ interface Props {
   estimate?: number
   onSetEstimate?: (id: string, minutes: number | null) => void
   showEstimate?: boolean
+  compact?: boolean
+  onSnooze?: (id: string, position: { x: number; y: number }) => void
 }
 
-export function AssignmentItem({ assignment, index, completed, onToggleComplete, estimate, onSetEstimate, showEstimate = false }: Props) {
+export function AssignmentItem({
+  assignment, index, completed, onToggleComplete,
+  estimate, onSetEstimate, showEstimate = false,
+  compact = false, onSnooze,
+}: Props) {
   const [showPicker, setShowPicker] = useState(false)
 
   const due = assignment.dueAt ? new Date(assignment.dueAt) : null
@@ -57,7 +63,6 @@ export function AssignmentItem({ assignment, index, completed, onToggleComplete,
   function openExternal(e: React.MouseEvent) {
     e.preventDefault()
     e.stopPropagation()
-    console.log('[AssignmentItem] ExternalLink clicked, canvasUrl:', assignment.canvasUrl)
     openUrl()
   }
 
@@ -82,14 +87,67 @@ export function AssignmentItem({ assignment, index, completed, onToggleComplete,
     setShowPicker(false)
   }
 
+  function handleContextMenu(e: React.MouseEvent) {
+    e.preventDefault()
+    onSnooze?.(assignment.id, { x: e.clientX, y: e.clientY })
+  }
+
+  // ── Compact mode ─────────────────────────────────────────────────────────
+  if (compact) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: completed ? 0.5 : 1, y: 0 }}
+        transition={{ delay: index * 0.02, duration: 0.2 }}
+        onContextMenu={handleContextMenu}
+        className="glass-inset rounded-lg px-3 flex items-center gap-2 hover:bg-white/5 transition-colors"
+        style={{ height: 32 }}
+      >
+        {/* Checkbox */}
+        <button
+          onClick={handleCheckbox}
+          aria-label={completed ? 'Mark as incomplete' : 'Mark as complete'}
+          className="w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 transition-colors"
+          style={{
+            border: completed ? 'none' : '1.5px solid hsl(0 0% 100% / 0.5)',
+            backgroundColor: completed ? 'hsl(212 90% 60%)' : 'transparent',
+          }}
+        >
+          {completed && (
+            <svg viewBox="0 0 10 8" className="w-2 h-1.5">
+              <path d="M1 4l2.5 3L9 1" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </button>
+        {/* Course color dot */}
+        <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: getCourseColor(assignment.courseName) }} />
+        {/* Title */}
+        <div
+          onClick={openUrl}
+          className={`flex-1 text-xs font-medium truncate min-w-0 cursor-pointer ${completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}
+        >
+          {assignment.title}
+        </div>
+        {/* Due date */}
+        {due && (
+          <span className="text-[10px] shrink-0" style={{ color: dueColor }}>
+            {format(due, 'MMM d')}
+          </span>
+        )}
+      </motion.div>
+    )
+  }
+
+  // ── Expanded mode (default) ───────────────────────────────────────────────
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: completed ? 0.5 : 1, y: 0 }}
       transition={{ delay: index * 0.02, duration: 0.25 }}
+      onContextMenu={handleContextMenu}
       className="glass-inset rounded-xl p-3 flex items-start gap-3 hover:bg-white/5 transition-colors"
     >
-      {/* Checkbox — stopPropagation so it doesn't open URL */}
+      {/* Checkbox */}
       <div className="pt-0.5 shrink-0">
         <button
           onClick={handleCheckbox}
@@ -108,7 +166,7 @@ export function AssignmentItem({ assignment, index, completed, onToggleComplete,
         </button>
       </div>
 
-      {/* Clickable content area — opens Canvas URL */}
+      {/* Clickable content area */}
       <div
         onClick={openUrl}
         className="flex items-start gap-2 flex-1 min-w-0 cursor-pointer"
@@ -157,7 +215,7 @@ export function AssignmentItem({ assignment, index, completed, onToggleComplete,
               </div>
             )}
 
-            {/* Estimate badge / button */}
+            {/* Estimate badge */}
             {showEstimate && onSetEstimate && (
               <button
                 onClick={handleEstimateClick}
@@ -176,10 +234,7 @@ export function AssignmentItem({ assignment, index, completed, onToggleComplete,
 
           {/* Inline estimate picker */}
           {showPicker && onSetEstimate && (
-            <div
-              className="flex flex-wrap gap-1 mt-0.5"
-              onClick={e => e.stopPropagation()}
-            >
+            <div className="flex flex-wrap gap-1 mt-0.5" onClick={e => e.stopPropagation()}>
               {ESTIMATE_OPTIONS.map(opt => (
                 <button
                   key={opt.minutes}

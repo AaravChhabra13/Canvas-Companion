@@ -152,38 +152,61 @@ Key files:
 - Toggle in settings — off by default, user opts in
 - Implemented via node-cron scheduled at 08:00 daily
 
-## Phase 5.1 — Cross-device and sync (PLANNED)
-
-### iCloud sync for personal tasks
-- Move storage path to ~/Library/Mobile Documents/com~apple~CloudDocs/
-  CanvasCompanion/tasks.json
-- Syncs automatically across all the user's Macs via iCloud for free
-- No backend, no server, no account needed
-
-
-## Phase 5.2 — UI/UX refinements (PLANNED)
+## Phase 5.2 — UI/UX refinements (COMPLETE)
 
 ### Command palette
-- Cmd+K inside the panel opens a fuzzy search across all assignments
-- Use fuse.js for fuzzy matching (npm install fuse.js)
-- Enter opens the Canvas URL, Escape closes the palette
+- Cmd+K inside the panel opens a fuzzy search overlay across all assignments
+- Uses fuse.js for fuzzy matching
+- Search by assignment title, course name, or due date
+- Enter opens Canvas URL, Escape closes palette
+- Glass-inset styled overlay matching the rest of the app
 
 ### Keyboard navigation
-- Arrow keys move focus through assignment rows
-- Enter opens Canvas URL, Space marks done, Cmd+D dismisses overdue
+- Left/right arrow keys switch between Assignments, Courses, Calendar tabs
+- Up/down keys scroll naturally through assignment rows (default behavior)
 - Escape closes the panel
 
 ### Compact/expanded view toggle
-- Toggle button in header switches between two view modes
-- Compact: title and due date only, smaller row height (32px)
-- Expanded: full metadata — course name, time estimate, submission badge
-- Preference persisted in electron-store as viewMode: 'compact' | 'expanded'
+- Small toggle button in panel header (list/expand icon)
+- Compact: title and due date only, 32px row height, hides course name and estimates
+- Expanded: full metadata including course name, time estimate, submission badge
+- Preference persisted in electron-store as settings.viewMode: 'compact' | 'expanded'
 
 ### Snooze
 - Right-click on any assignment row opens a context menu
 - Options: Snooze 1 hour, Snooze until tomorrow, Snooze until next sync
-- Snooze state stored in electron-store as Record<assignmentId, snoozeUntil>
+- Snoozed assignments hidden from main view
+- Small snooze count badge in footer with unsnooze option
+- Snooze state stored in electron-store as Record<assignmentId, snoozeUntil: ISO string>
+- Auto-unsnoozes when snoozeUntil time has passed
 
+### Calendar heatmap colors (fixed)
+- 0 assignments: transparent
+- 1-2 assignments: #F59E0B at 0.25 opacity — bright yellow
+- 3-4 assignments: #F97316 at 0.45 opacity — vivid orange
+- 5+ assignments: #EF4444 at 0.65 opacity — bright red
+- Overdue day: #B91C1C at 0.85 opacity — dark red
+
+### Personal tasks UI fixed
+- Task form uses glass-inset styling matching the rest of the app
+- Date picker styled with white text and transparent background
+- No more black or dark solid backgrounds
+
+### Enhanced liquid glass visuals
+- Backdrop blur increased to 60px on main glass class
+- Inner glow added to glass cards
+- Aurora gradient more vibrant
+- Subtle animated shimmer on panel header
+- Glass card hover state with scale(1.005) and smooth transitions
+
+## Phase 5.1 — Cross-device and sync (DEFERRED — building after Phase 5.2)
+Deferred to after shipping. iCloud sync for personal tasks is a nice-to-have
+that only helps users with multiple Macs. Shipping Phase 5.3 first is higher priority.
+
+### iCloud sync for personal tasks (when built)
+- Move storage to ~/Library/Mobile Documents/com~apple~CloudDocs/CanvasCompanion/tasks.json
+- Syncs automatically across all Macs via iCloud for free
+- No backend or server needed
 ## Phase 5.3 — Reliability, shipping polish and deployment (PLANNED)
 
 ### Deployment and distribution

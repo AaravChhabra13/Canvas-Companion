@@ -17,6 +17,7 @@ interface StoreSchema {
   personalTasks: PersonalTask[]
   cseSiteUrls: CseSiteEntry[]
   estimates: Record<string, number>  // assignmentId → minutes
+  snoozeState: Record<string, string>  // assignmentId → ISO date string | 'next-sync'
   appVersion: string
 }
 
@@ -31,6 +32,7 @@ const SETTINGS_DEFAULTS: Settings = {
   hideOldOverdue: true,
   dailyDigest: { enabled: false, hour: 8, minute: 0 },
   showTimeEstimates: false,
+  viewMode: 'expanded' as const,
 }
 
 // Initialized inside setupIPC (after app.ready) so app.getPath() is available
@@ -134,6 +136,7 @@ export function setupIPC(
       personalTasks: [],
       cseSiteUrls: [],
       estimates: {},
+      snoozeState: {},
       appVersion: '',
     },
   })
@@ -263,6 +266,27 @@ export function setupIPC(
     const updated = { ...current, [id]: minutes }
     store.set('estimates', updated)
     return updated
+  })
+
+  // ── Snooze ────────────────────────────────────────────────────────────────
+  ipcMain.handle('snooze:get', () => store.get('snoozeState') as Record<string, string>)
+  ipcMain.handle('snooze:set', (_event, id: string, until: string) => {
+    const current = store.get('snoozeState') as Record<string, string>
+    const updated = { ...current, [id]: until }
+    store.set('snoozeState', updated)
+    return updated
+  })
+  ipcMain.handle('snooze:clear', (_event, id: string) => {
+    const current = store.get('snoozeState') as Record<string, string>
+    const { [id]: _removed, ...rest } = current
+    store.set('snoozeState', rest)
+    return rest
+  })
+  ipcMain.handle('snooze:clear-next-sync', () => {
+    const current = store.get('snoozeState') as Record<string, string>
+    const cleaned = Object.fromEntries(Object.entries(current).filter(([, v]) => v !== 'next-sync'))
+    store.set('snoozeState', cleaned)
+    return cleaned
   })
 
   // ── Notifications ─────────────────────────────────────────────────────────

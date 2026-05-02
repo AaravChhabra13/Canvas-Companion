@@ -66,4 +66,5 @@ export interface Settings {
   hideOldOverdue: boolean
   dailyDigest: DailyDigest
   showTimeEstimates: boolean
+  viewMode: 'compact' | 'expanded'
 }

@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   RefreshCw, Settings as SettingsIcon, BookOpen, Inbox,
   CheckCheck, ChevronRight, ChevronLeft, ArrowLeft, Save, EyeOff, Bell, Plus, Plug,
-  Calendar as CalendarIcon, Clock,
+  Calendar as CalendarIcon, Clock, Search, List, LayoutList, BellOff,
 } from 'lucide-react'
+import Fuse from 'fuse.js'
 import { formatDistanceToNowStrict, isToday, format } from 'date-fns'
 import { AssignmentItem } from './AssignmentItem'
 import { groupAssignments, GROUP_ORDER, GROUP_LABELS } from '../lib/groupAssignments'
@@ -40,6 +41,15 @@ function formatLoad(minutes: number): string {
   return `${h % 1 === 0 ? h : h.toFixed(1)} hr${h !== 1 ? 's' : ''}`
 }
 
+function getCourseColor(courseName: string): string {
+  const colors = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899', '#14B8A6', '#EF4444', '#F97316']
+  let hash = 0
+  for (let i = 0; i < courseName.length; i++) {
+    hash = courseName.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  return colors[Math.abs(hash) % colors.length]
+}
+
 // ── Tab button ────────────────────────────────────────────────────────────────
 
 const TabButton = ({
@@ -64,7 +74,8 @@ const TabButton = ({
 const TODAY_COLOR = 'hsl(35 80% 60%)'
 
 const GroupedList = ({
-  groups, completed, onToggle, estimates, onSetEstimate, showEstimate, compact = false,
+  groups, completed, onToggle, estimates, onSetEstimate, showEstimate,
+  compact = false, itemCompact = false, onSnooze,
 }: {
   groups: ReturnType<typeof groupAssignments>
   completed: Set<string>
@@ -73,6 +84,8 @@ const GroupedList = ({
   onSetEstimate: (id: string, minutes: number | null) => void
   showEstimate: boolean
   compact?: boolean
+  itemCompact?: boolean
+  onSnooze?: (id: string, position: { x: number; y: number }) => void
 }) => (
   <div className={`${compact ? '' : 'p-4'} flex flex-col gap-5`}>
     {GROUP_ORDER.map((key) => {
@@ -102,6 +115,8 @@ const GroupedList = ({
                 estimate={estimates[a.id]}
                 onSetEstimate={onSetEstimate}
                 showEstimate={showEstimate}
+                compact={itemCompact}
+                onSnooze={onSnooze}
               />
             ))}
           </div>
@@ -130,23 +145,162 @@ const EmptyState = () => (
   </div>
 )
 
+// ── Command palette ───────────────────────────────────────────────────────────
+
+function CommandPalette({
+  assignments,
+  onClose,
+}: {
+  assignments: Assignment[]
+  onClose: () => void
+}) {
+  const [query, setQuery] = useState('')
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const fuse = useMemo(() => new Fuse(assignments, {
+    keys: ['title', 'courseName', 'dueAt'],
+    threshold: 0.4,
+    includeScore: true,
+  }), [assignments])
+
+  const results = useMemo(() => {
+    if (!query.trim()) return assignments.slice(0, 8)
+    return fuse.search(query).slice(0, 8).map(r => r.item)
+  }, [query, fuse, assignments])
+
+  useEffect(() => { inputRef.current?.focus() }, [])
+  useEffect(() => { setSelectedIndex(0) }, [query])
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Escape') { e.preventDefault(); onClose(); return }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIndex(i => Math.min(i + 1, results.length - 1)); return }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIndex(i => Math.max(i - 1, 0)); return }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const item = results[selectedIndex]
+      if (item?.canvasUrl) window.ipcRenderer.send('open-external', item.canvasUrl)
+      onClose()
+    }
+  }
+
+  return (
+    <div
+      className="absolute inset-0 z-50 flex flex-col"
+      style={{ background: 'hsl(220 20% 8% / 0.85)' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="glass-inset rounded-b-2xl flex flex-col overflow-hidden"
+        style={{ backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)' }}
+      >
+        {/* Search input */}
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5">
+          <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Search assignments…"
+            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 outline-none"
+          />
+          <kbd className="text-[9px] text-muted-foreground/50 border border-white/10 rounded px-1 py-0.5">esc</kbd>
+        </div>
+
+        {/* Results */}
+        <div className="flex flex-col max-h-72 overflow-y-auto">
+          {results.length === 0 ? (
+            <div className="text-xs text-muted-foreground text-center py-6">No results</div>
+          ) : results.map((a, i) => (
+            <button
+              key={a.id}
+              onClick={() => { if (a.canvasUrl) window.ipcRenderer.send('open-external', a.canvasUrl); onClose() }}
+              className="flex items-center gap-3 px-4 py-2.5 text-left transition-colors"
+              style={{ background: i === selectedIndex ? 'hsl(212 90% 60% / 0.12)' : 'transparent' }}
+            >
+              <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: getCourseColor(a.courseName) }} />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate text-foreground">{a.title}</div>
+                <div className="text-[10px] text-muted-foreground">
+                  {a.courseName}{a.dueAt ? ` · ${format(new Date(a.dueAt), 'MMM d')}` : ''}
+                </div>
+              </div>
+              {a.canvasUrl && <ExternalLinkIcon />}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ExternalLinkIcon() {
+  return (
+    <svg className="w-3 h-3 text-muted-foreground/40 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
+    </svg>
+  )
+}
+
+// ── Snooze context menu ───────────────────────────────────────────────────────
+
+function SnoozeContextMenu({
+  x, y, assignmentId, onSnooze, onClose,
+}: {
+  x: number; y: number; assignmentId: string
+  onSnooze: (id: string, until: string) => void
+  onClose: () => void
+}) {
+  function snooze1Hour() {
+    onSnooze(assignmentId, new Date(Date.now() + 60 * 60 * 1000).toISOString())
+  }
+  function snoozeTomorrow() {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    d.setHours(9, 0, 0, 0)
+    onSnooze(assignmentId, d.toISOString())
+  }
+  function snoozeNextSync() {
+    onSnooze(assignmentId, 'next-sync')
+  }
+
+  return (
+    <div
+      className="absolute z-50 glass rounded-xl shadow-xl py-1.5 min-w-42"
+      style={{ left: Math.min(x, 170), top: Math.min(y, 400) }}
+      onClick={e => e.stopPropagation()}
+    >
+      <button onClick={snooze1Hour} className="w-full text-left px-4 py-2 text-xs hover:bg-white/5 transition-colors">
+        Snooze 1 hour
+      </button>
+      <button onClick={snoozeTomorrow} className="w-full text-left px-4 py-2 text-xs hover:bg-white/5 transition-colors">
+        Snooze until tomorrow
+      </button>
+      <button onClick={snoozeNextSync} className="w-full text-left px-4 py-2 text-xs hover:bg-white/5 transition-colors">
+        Snooze until next sync
+      </button>
+      <div className="h-px bg-white/5 mx-2 my-0.5" />
+      <button onClick={onClose} className="w-full text-left px-4 py-2 text-xs text-muted-foreground hover:bg-white/5 transition-colors">
+        Cancel
+      </button>
+    </div>
+  )
+}
+
 // ── Calendar view ─────────────────────────────────────────────────────────────
 
 function getDayBg(data: { count: number; assignments: Assignment[] } | undefined): string {
   if (!data || data.count === 0) return 'transparent'
-  if (data.assignments.some(a => a.isOverdue)) return 'hsl(0 85% 50% / 0.85)'
-  if (data.count >= 5) return 'hsl(10 90% 52% / 0.7)'
-  if (data.count >= 3) return 'hsl(25 95% 58% / 0.5)'
-  return 'hsl(38 95% 65% / 0.3)'
+  if (data.assignments.some(a => a.isOverdue)) return 'rgba(185, 28, 28, 0.85)'
+  if (data.count >= 5) return 'rgba(239, 68, 68, 0.65)'
+  if (data.count >= 3) return 'rgba(249, 115, 22, 0.45)'
+  return 'rgba(245, 158, 11, 0.25)'
 }
 
 function CalendarView({
-  assignments,
-  completed,
-  onToggle,
-  estimates,
-  onSetEstimate,
-  showEstimate,
+  assignments, completed, onToggle, estimates, onSetEstimate, showEstimate, onSnooze,
 }: {
   assignments: Assignment[]
   completed: Set<string>
@@ -154,6 +308,7 @@ function CalendarView({
   estimates: Record<string, number>
   onSetEstimate: (id: string, minutes: number | null) => void
   showEstimate: boolean
+  onSnooze?: (id: string, position: { x: number; y: number }) => void
 }) {
   const [currentMonth, setCurrentMonth] = useState(() => {
     const n = new Date()
@@ -192,29 +347,20 @@ function CalendarView({
 
   const today = new Date()
   const todayK = dateKey(today)
-
   const monthLabel = format(currentMonth, 'MMMM yyyy')
-
   const prevMonth = () => setCurrentMonth(m => new Date(m.getFullYear(), m.getMonth() - 1, 1))
   const nextMonth = () => setCurrentMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1))
-
   const selectedData = selectedKey ? heatmap.get(selectedKey) : null
 
   return (
     <div className="p-4 flex flex-col gap-3">
       {/* Month navigation */}
       <div className="flex items-center justify-between">
-        <button
-          onClick={prevMonth}
-          className="p-1 rounded-lg hover:bg-white/8 transition-colors text-muted-foreground hover:text-foreground"
-        >
+        <button onClick={prevMonth} className="p-1 rounded-lg hover:bg-white/8 transition-colors text-muted-foreground hover:text-foreground">
           <ChevronLeft className="w-4 h-4" />
         </button>
         <span className="text-sm font-semibold">{monthLabel}</span>
-        <button
-          onClick={nextMonth}
-          className="p-1 rounded-lg hover:bg-white/8 transition-colors text-muted-foreground hover:text-foreground"
-        >
+        <button onClick={nextMonth} className="p-1 rounded-lg hover:bg-white/8 transition-colors text-muted-foreground hover:text-foreground">
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>
@@ -247,7 +393,6 @@ function CalendarView({
                 outline: isSel ? '1px solid hsl(212 90% 60% / 0.5)' : 'none',
               }}
             >
-              {/* Day number */}
               {isT ? (
                 <span
                   className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0"
@@ -261,16 +406,11 @@ function CalendarView({
                 </span>
               )}
 
-              {/* Assignment micro-badges */}
               {badges.slice(0, 2).map((a, i) => {
                 const code = a.courseName.split(' ')[0]
                 const t = a.title.length > 8 ? a.title.slice(0, 8) + '…' : a.title
                 return (
-                  <span
-                    key={i}
-                    className="text-[9px] leading-tight truncate w-full text-foreground/60"
-                    title={`${a.courseName} — ${a.title}`}
-                  >
+                  <span key={i} className="text-[9px] leading-tight truncate w-full text-foreground/60" title={`${a.courseName} — ${a.title}`}>
                     {code} · {t}
                   </span>
                 )
@@ -286,10 +426,10 @@ function CalendarView({
       {/* Legend */}
       <div className="flex items-center gap-3 justify-center flex-wrap">
         {[
-          { color: 'hsl(38 95% 65% / 0.3)', label: '1–2' },
-          { color: 'hsl(25 95% 58% / 0.5)', label: '3–4' },
-          { color: 'hsl(10 90% 52% / 0.7)', label: '5+' },
-          { color: 'hsl(0 85% 50% / 0.85)', label: 'overdue' },
+          { color: 'rgba(245, 158, 11, 0.25)', label: '1–2' },
+          { color: 'rgba(249, 115, 22, 0.45)', label: '3–4' },
+          { color: 'rgba(239, 68, 68, 0.65)', label: '5+' },
+          { color: 'rgba(185, 28, 28, 0.85)', label: 'overdue' },
         ].map(({ color, label }) => (
           <div key={label} className="flex items-center gap-1">
             <div className="w-2.5 h-2.5 rounded-sm" style={{ background: color }} />
@@ -314,6 +454,7 @@ function CalendarView({
               estimate={estimates[a.id]}
               onSetEstimate={onSetEstimate}
               showEstimate={showEstimate}
+              onSnooze={onSnooze}
             />
           ))}
         </div>
@@ -322,7 +463,7 @@ function CalendarView({
   )
 }
 
-// ── Settings panel (inline page, no overlay) ──────────────────────────────────
+// ── Settings panel ────────────────────────────────────────────────────────────
 
 const NOTIF_OPTIONS = [
   { label: '24 hours', value: 1440 },
@@ -376,16 +517,13 @@ function SettingsPanel({
   const [hasExistingToken, setHasExistingToken] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // CSE site URLs
   const [cseSiteUrls, setCseSiteUrls] = useState<CseSiteEntry[]>([])
   const [newCseUrl, setNewCseUrl] = useState('')
   const [newCseCourseName, setNewCseCourseName] = useState('')
   const [cseSaving, setCseSaving] = useState(false)
 
-  // Productivity
   const [showTimeEstimatesSetting, setShowTimeEstimatesSetting] = useState(settings.showTimeEstimates ?? false)
 
-  // Daily digest
   const digest = settings.dailyDigest ?? { enabled: false, hour: 8, minute: 0 }
   const [digestEnabled, setDigestEnabled] = useState(digest.enabled)
   const [digestHour, setDigestHour] = useState(() => {
@@ -483,20 +621,16 @@ function SettingsPanel({
       {/* Canvas URL */}
       <div className="flex flex-col gap-2">
         <label className="text-xs uppercase tracking-wider text-muted-foreground">Canvas URL</label>
-        <input
-          type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
-          placeholder="https://canvas.uw.edu" spellCheck={false} className={inputCls}
-        />
+        <input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
+          placeholder="https://canvas.uw.edu" spellCheck={false} className={inputCls} />
       </div>
 
       {/* iCal Feed URL */}
       <div className="flex flex-col gap-2">
         <label className="text-xs uppercase tracking-wider text-muted-foreground">iCal Feed URL</label>
-        <textarea
-          value={icalUrl} onChange={e => setIcalUrl(e.target.value)}
+        <textarea value={icalUrl} onChange={e => setIcalUrl(e.target.value)}
           placeholder="https://canvas.uw.edu/feeds/calendars/user_….ics"
-          rows={3} spellCheck={false} className={`${inputCls} resize-none`}
-        />
+          rows={3} spellCheck={false} className={`${inputCls} resize-none`} />
         <p className="text-xs text-muted-foreground leading-relaxed">
           Canvas → Calendar → <span className="text-foreground">Calendar Feed</span> (bottom of page)
         </p>
@@ -515,8 +649,7 @@ function SettingsPanel({
             <div className="relative">
               <input type={showToken ? 'text' : 'password'} value={token}
                 onChange={e => { setToken(e.target.value); setTokenStatus('idle') }}
-                placeholder="Paste token from Canvas" spellCheck={false} className={`${inputCls} pr-12`}
-              />
+                placeholder="Paste token from Canvas" spellCheck={false} className={`${inputCls} pr-12`} />
               <button onClick={() => setShowToken(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground hover:text-foreground">
                 {showToken ? 'Hide' : 'Show'}
               </button>
@@ -545,8 +678,7 @@ function SettingsPanel({
             <div className="relative">
               <input type={showCookie ? 'text' : 'password'} value={cookieInput}
                 onChange={e => setCookieInput(e.target.value)}
-                placeholder="Paste Cookie header value" spellCheck={false} className={`${inputCls} pr-12`}
-              />
+                placeholder="Paste Cookie header value" spellCheck={false} className={`${inputCls} pr-12`} />
               <button onClick={() => setShowCookie(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground hover:text-foreground">
                 {showCookie ? 'Hide' : 'Show'}
               </button>
@@ -571,7 +703,7 @@ function SettingsPanel({
         </select>
       </div>
 
-      {/* Hide old overdue toggle */}
+      {/* Hide old overdue */}
       <div className="glass-inset rounded-xl p-3 overflow-hidden flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <EyeOff className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -625,20 +757,12 @@ function SettingsPanel({
         </div>
         {digestEnabled && (
           <div className="flex items-center gap-2 pl-6">
-            <select
-              value={digestHour}
-              onChange={e => setDigestHour(Number(e.target.value))}
-              className="glass-inset rounded-lg px-2 py-1 text-xs text-foreground outline-none"
-            >
-              {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(h => (
-                <option key={h} value={h}>{h}:00</option>
-              ))}
+            <select value={digestHour} onChange={e => setDigestHour(Number(e.target.value))}
+              className="glass-inset rounded-lg px-2 py-1 text-xs text-foreground outline-none">
+              {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(h => <option key={h} value={h}>{h}:00</option>)}
             </select>
-            <select
-              value={digestAmPm}
-              onChange={e => setDigestAmPm(e.target.value as 'AM' | 'PM')}
-              className="glass-inset rounded-lg px-2 py-1 text-xs text-foreground outline-none"
-            >
+            <select value={digestAmPm} onChange={e => setDigestAmPm(e.target.value as 'AM' | 'PM')}
+              className="glass-inset rounded-lg px-2 py-1 text-xs text-foreground outline-none">
               <option value="AM">AM</option>
               <option value="PM">PM</option>
             </select>
@@ -657,8 +781,7 @@ function SettingsPanel({
                   <div className="w-4 h-4 rounded-full border border-white/20" style={{ background: c.color }} />
                   <input type="color" value={c.color}
                     onChange={e => setLocalCourses(prev => prev.map(x => x.id === c.id ? { ...x, color: e.target.value } : x))}
-                    className="absolute opacity-0 w-0 h-0 pointer-events-none" tabIndex={-1}
-                  />
+                    className="absolute opacity-0 w-0 h-0 pointer-events-none" tabIndex={-1} />
                 </label>
                 <span className={`flex-1 text-xs truncate ${c.hidden ? 'text-muted-foreground/40' : 'text-foreground'}`}>{c.name}</span>
                 <button
@@ -680,7 +803,6 @@ function SettingsPanel({
         <p className="text-[11px] text-muted-foreground leading-relaxed">
           Add your CSE course websites to pull assignments directly from course pages
         </p>
-
         {cseSiteUrls.length > 0 && (
           <div className="flex flex-col gap-1.5">
             {cseSiteUrls.map((entry, i) => (
@@ -689,54 +811,39 @@ function SettingsPanel({
                   <div className="text-xs font-medium truncate">{entry.courseName}</div>
                   <div className="text-[10px] text-muted-foreground truncate">{entry.url}</div>
                 </div>
-                <button
-                  onClick={() => handleRemoveCseSite(i)}
+                <button onClick={() => handleRemoveCseSite(i)}
                   className="text-[10px] px-2 py-1 rounded-lg hover:bg-white/5 transition-colors shrink-0"
-                  style={{ color: 'hsl(var(--danger))' }}
-                >
-                  Remove
-                </button>
+                  style={{ color: 'hsl(var(--danger))' }}>Remove</button>
               </div>
             ))}
           </div>
         )}
-
-        <input
-          type="url" value={newCseUrl} onChange={e => setNewCseUrl(e.target.value)}
+        <input type="url" value={newCseUrl} onChange={e => setNewCseUrl(e.target.value)}
           placeholder="https://courses.cs.washington.edu/courses/cseXXX/26sp/"
-          spellCheck={false} className={inputCls}
-        />
-        <input
-          type="text" value={newCseCourseName} onChange={e => setNewCseCourseName(e.target.value)}
+          spellCheck={false} className={inputCls} />
+        <input type="text" value={newCseCourseName} onChange={e => setNewCseCourseName(e.target.value)}
           placeholder="Course name (e.g. CSE 123)"
           spellCheck={false} className={inputCls}
-          onKeyDown={e => { if (e.key === 'Enter') handleAddCseSite() }}
-        />
-        <button
-          onClick={handleAddCseSite}
+          onKeyDown={e => { if (e.key === 'Enter') handleAddCseSite() }} />
+        <button onClick={handleAddCseSite}
           disabled={!newCseUrl.trim() || !newCseCourseName.trim() || cseSaving}
           className="text-xs py-2 rounded-xl font-medium text-primary-foreground disabled:opacity-40 transition-opacity"
-          style={{ background: 'var(--gradient-primary)' }}
-        >
+          style={{ background: 'var(--gradient-primary)' }}>
           {cseSaving ? 'Adding…' : 'Add Site'}
         </button>
       </div>
 
       {/* Save */}
-      <button
-        onClick={handleSave} disabled={saving}
+      <button onClick={handleSave} disabled={saving}
         className="rounded-xl py-2.5 px-4 font-medium text-primary-foreground flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50 mt-2"
-        style={{ background: 'var(--gradient-primary)', boxShadow: 'var(--shadow-glow)' }}
-      >
+        style={{ background: 'var(--gradient-primary)', boxShadow: 'var(--shadow-glow)' }}>
         <Save className="w-4 h-4" />
         {saving ? 'Saving…' : 'Save & Sync'}
       </button>
 
       {/* Change connection method */}
-      <button
-        onClick={() => window.ipcRenderer.invoke('onboarding:reopen')}
-        className="flex items-center justify-center gap-2 w-full py-2 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors mt-1"
-      >
+      <button onClick={() => window.ipcRenderer.invoke('onboarding:reopen')}
+        className="flex items-center justify-center gap-2 w-full py-2 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors mt-1">
         <Plug className="w-3.5 h-3.5" />
         Change connection method
       </button>
@@ -751,20 +858,27 @@ function AddTaskForm({ onAdd, onCancel }: { onAdd: (title: string, dueAt: string
   const [dueAt, setDueAt] = useState('')
   const submit = () => { if (title.trim()) onAdd(title.trim(), dueAt) }
   return (
-    <div className="px-4 py-3 border-t border-white/5 flex flex-col gap-2 shrink-0">
-      <input autoFocus type="text" placeholder="Task title" value={title}
+    <div className="mx-4 mb-3 p-3 glass-inset rounded-xl flex flex-col gap-2 shrink-0">
+      <input
+        autoFocus type="text" placeholder="Task title" value={title}
         onChange={e => setTitle(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onCancel() }}
-        className="w-full glass-inset rounded-xl px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 outline-none focus:ring-1 focus:ring-primary/50"
+        className="w-full bg-transparent rounded-xl px-3 py-2 text-xs text-white/80 placeholder:text-white/30 outline-none focus:ring-1 focus:ring-primary/50 border border-white/20"
       />
-      <input type="datetime-local" value={dueAt} onChange={e => setDueAt(e.target.value)}
-        style={{ colorScheme: 'dark' }}
-        className="w-full glass-inset rounded-xl px-3 py-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary/50"
+      <input
+        type="datetime-local" value={dueAt} onChange={e => setDueAt(e.target.value)}
+        style={{ colorScheme: 'dark', background: 'transparent', color: 'rgba(255,255,255,0.8)' }}
+        className="w-full rounded-xl px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-primary/50 border border-white/20"
       />
       <div className="flex gap-2">
-        <button onClick={onCancel} className="flex-1 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors">Cancel</button>
-        <button onClick={submit} disabled={!title.trim()} className="flex-1 py-1.5 rounded-lg text-xs font-medium text-primary-foreground disabled:opacity-40"
-          style={{ background: title.trim() ? 'var(--gradient-primary)' : undefined }}>
+        <button onClick={onCancel} className="flex-1 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors">
+          Cancel
+        </button>
+        <button
+          onClick={submit} disabled={!title.trim()}
+          className="flex-1 py-1.5 rounded-lg text-xs font-medium text-primary-foreground disabled:opacity-40"
+          style={{ background: title.trim() ? 'var(--gradient-primary)' : undefined }}
+        >
           Add Task
         </button>
       </div>
@@ -785,21 +899,27 @@ const SETTINGS_DEFAULTS: Settings = {
   hideOldOverdue: true,
   dailyDigest: { enabled: false, hour: 8, minute: 0 },
   showTimeEstimates: false,
+  viewMode: 'expanded',
 }
 
 export default function Panel() {
-  const [assignments, setAssignments]     = useState<Assignment[]>([])
-  const [syncState, setSyncState]         = useState<SyncState>({ status: 'idle', lastSyncAt: null })
-  const [settings, setSettings]           = useState<Settings>(SETTINGS_DEFAULTS)
-  const [courses, setCourses]             = useState<Course[]>([])
-  const [completedIds, setCompletedIds]   = useState<Set<string>>(new Set())
-  const [personalTasks, setPersonalTasks] = useState<PersonalTask[]>([])
-  const [estimates, setEstimates]         = useState<Record<string, number>>({})
-  const [showSettings, setShowSettings]   = useState(false)
-  const [tab, setTab]                     = useState<'assignments' | 'courses' | 'calendar'>('assignments')
+  const [assignments, setAssignments]       = useState<Assignment[]>([])
+  const [syncState, setSyncState]           = useState<SyncState>({ status: 'idle', lastSyncAt: null })
+  const [settings, setSettings]             = useState<Settings>(SETTINGS_DEFAULTS)
+  const [courses, setCourses]               = useState<Course[]>([])
+  const [completedIds, setCompletedIds]     = useState<Set<string>>(new Set())
+  const [personalTasks, setPersonalTasks]   = useState<PersonalTask[]>([])
+  const [estimates, setEstimates]           = useState<Record<string, number>>({})
+  const [showSettings, setShowSettings]     = useState(false)
+  const [tab, setTab]                       = useState<'assignments' | 'courses' | 'calendar'>('assignments')
   const [selectedCourse, setSelectedCourse] = useState<string | null>(null)
   const [hideOldOverdue, setHideOldOverdue] = useState(true)
-  const [showAddTask, setShowAddTask]     = useState(false)
+  const [showAddTask, setShowAddTask]       = useState(false)
+  const [viewMode, setViewMode]             = useState<'compact' | 'expanded'>('expanded')
+  const [snoozeState, setSnoozeState]       = useState<Record<string, string>>({})
+  const [showSnoozedPanel, setShowSnoozedPanel] = useState(false)
+  const [contextMenu, setContextMenu]       = useState<{ assignmentId: string; x: number; y: number } | null>(null)
+  const [showPalette, setShowPalette]       = useState(false)
 
   // ── Initial load ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -809,27 +929,36 @@ export default function Panel() {
       const loaded = { ...SETTINGS_DEFAULTS, ...(s as Settings) }
       setSettings(loaded)
       setHideOldOverdue(loaded.hideOldOverdue ?? true)
+      setViewMode(loaded.viewMode ?? 'expanded')
     })
     window.ipcRenderer.invoke('courses:get').then((c: unknown) => setCourses(c as Course[]))
     window.ipcRenderer.invoke('completed:get').then((ids: unknown) => setCompletedIds(new Set(ids as string[])))
     window.ipcRenderer.invoke('tasks:get').then((t: unknown) => setPersonalTasks(t as PersonalTask[]))
     window.ipcRenderer.invoke('estimates:get').then((e: unknown) => setEstimates(e as Record<string, number>))
+    window.ipcRenderer.invoke('snooze:get').then((s: unknown) => setSnoozeState(s as Record<string, string>))
   }, [])
 
   // ── Push subscriptions ───────────────────────────────────────────────────
   useEffect(() => {
-    const onData    = (_: unknown, d: Assignment[]) => setAssignments(d)
-    const onStatus  = (_: unknown, s: SyncState)    => setSyncState(s)
-    const onCourses = (_: unknown, c: Course[])     => setCourses(c)
+    const onData = (_: unknown, d: Assignment[]) => {
+      setAssignments(d)
+      // Clear "next-sync" snoozes when new data arrives
+      window.ipcRenderer.invoke('snooze:clear-next-sync').then((s: unknown) => setSnoozeState(s as Record<string, string>))
+    }
+    const onStatus  = (_: unknown, s: SyncState) => setSyncState(s)
+    const onCourses = (_: unknown, c: Course[])  => setCourses(c)
     const onShown   = () => {
       setTab('assignments')
       setSelectedCourse(null)
       setShowSettings(false)
+      setShowPalette(false)
+      setContextMenu(null)
       window.ipcRenderer.invoke('assignments:get').then((d: unknown) => setAssignments(d as Assignment[]))
       window.ipcRenderer.invoke('sync:status:get').then((s: unknown) => setSyncState(s as SyncState))
       window.ipcRenderer.invoke('courses:get').then((c: unknown) => setCourses(c as Course[]))
       window.ipcRenderer.invoke('completed:get').then((ids: unknown) => setCompletedIds(new Set(ids as string[])))
       window.ipcRenderer.invoke('tasks:get').then((t: unknown) => setPersonalTasks(t as PersonalTask[]))
+      window.ipcRenderer.invoke('snooze:get').then((s: unknown) => setSnoozeState(s as Record<string, string>))
     }
     window.ipcRenderer.on('assignments:data', onData)
     window.ipcRenderer.on('sync:status',      onStatus)
@@ -851,6 +980,40 @@ export default function Panel() {
       window.ipcRenderer.send('panel:resize', 340, 520)
     }
   }, [tab])
+
+  // ── Keyboard shortcuts ───────────────────────────────────────────────────
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      // Cmd+K — toggle command palette
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setShowPalette(v => !v)
+        return
+      }
+      // Escape — close palette, context menu, or panel
+      if (e.key === 'Escape') {
+        if (showPalette) { setShowPalette(false); return }
+        if (contextMenu) { setContextMenu(null); return }
+        window.ipcRenderer.send('panel:hide')
+        return
+      }
+      // Left/right arrow — cycle tabs (ignore when typing in input/textarea)
+      const tag = (document.activeElement as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (e.key === 'ArrowLeft' && !showSettings) {
+        const tabs = ['assignments', 'courses', 'calendar'] as const
+        const idx = tabs.indexOf(tab)
+        switchTab(tabs[(idx - 1 + 3) % 3])
+      }
+      if (e.key === 'ArrowRight' && !showSettings) {
+        const tabs = ['assignments', 'courses', 'calendar'] as const
+        const idx = tabs.indexOf(tab)
+        switchTab(tabs[(idx + 1) % 3])
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [showPalette, contextMenu, showSettings, tab])
 
   // ── Actions ──────────────────────────────────────────────────────────────
   const triggerSync = useCallback(() => window.ipcRenderer.send('sync:trigger'), [])
@@ -886,19 +1049,62 @@ export default function Panel() {
     setShowAddTask(false)
   }, [personalTasks])
 
+  const handleToggleHideOldOverdue = useCallback(async (v: boolean) => {
+    setHideOldOverdue(v)
+    await window.ipcRenderer.invoke('settings:set', { hideOldOverdue: v })
+  }, [])
+
+  const handleToggleViewMode = useCallback(async () => {
+    const next = viewMode === 'expanded' ? 'compact' : 'expanded'
+    setViewMode(next)
+    await window.ipcRenderer.invoke('settings:set', { viewMode: next })
+  }, [viewMode])
+
+  const handleSnoozeClick = useCallback((id: string, position: { x: number; y: number }) => {
+    setContextMenu({ assignmentId: id, ...position })
+  }, [])
+
+  const handleSnooze = useCallback(async (id: string, until: string) => {
+    const updated = await window.ipcRenderer.invoke('snooze:set', id, until) as Record<string, string>
+    setSnoozeState(updated)
+    setContextMenu(null)
+  }, [])
+
+  const handleUnsnooze = useCallback(async (id: string) => {
+    const updated = await window.ipcRenderer.invoke('snooze:clear', id) as Record<string, string>
+    setSnoozeState(updated)
+  }, [])
+
   // ── Derived data ─────────────────────────────────────────────────────────
   const personalAssignments = useMemo(() => personalTasks.map(personalToAssignment), [personalTasks])
   const hiddenCourseIds = useMemo(() => new Set(courses.filter(c => c.hidden).map(c => c.id)), [courses])
 
   const visibleAssignments = useMemo(() => {
     const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000
+    const now = new Date()
     return [...assignments, ...personalAssignments].filter(a => {
       if (completedIds.has(a.id)) return false
       if (hiddenCourseIds.has(a.courseId)) return false
       if (hideOldOverdue && a.dueAt && new Date(a.dueAt).getTime() < oneDayAgo) return false
+      // Snooze filter
+      const until = snoozeState[a.id]
+      if (until) {
+        if (until === 'next-sync') return false
+        if (new Date(until) > now) return false
+      }
       return true
     })
-  }, [assignments, personalAssignments, completedIds, hiddenCourseIds, hideOldOverdue])
+  }, [assignments, personalAssignments, completedIds, hiddenCourseIds, hideOldOverdue, snoozeState])
+
+  const snoozedAssignments = useMemo(() => {
+    const now = new Date()
+    return [...assignments, ...personalAssignments].filter(a => {
+      const until = snoozeState[a.id]
+      if (!until) return false
+      if (until === 'next-sync') return true
+      return new Date(until) > now
+    })
+  }, [assignments, personalAssignments, snoozeState])
 
   const overdueIds = useMemo(
     () => visibleAssignments.filter(a => a.isOverdue).map(a => a.id),
@@ -937,11 +1143,9 @@ export default function Panel() {
 
   const courseGroups = useMemo(() => groupAssignments(courseAssignments), [courseAssignments])
 
-  // Today's load: sum estimates for today's non-overdue assignments
   const todayLoad = useMemo(() => {
     const todayItems = visibleAssignments.filter(a => a.dueAt && isToday(new Date(a.dueAt)) && !a.isOverdue)
-    let total = 0
-    let hasAny = false
+    let total = 0; let hasAny = false
     for (const a of todayItems) {
       const mins = estimates[a.id]
       if (mins) { total += mins; hasAny = true }
@@ -949,17 +1153,12 @@ export default function Panel() {
     return hasAny ? total : null
   }, [visibleAssignments, estimates])
 
-  const handleToggleHideOldOverdue = useCallback(async (v: boolean) => {
-    setHideOldOverdue(v)
-    await window.ipcRenderer.invoke('settings:set', { hideOldOverdue: v })
-  }, [])
-
   const clearOverdue = useCallback(async () => {
     for (const id of overdueIds) await handleToggleComplete(id)
   }, [overdueIds, handleToggleComplete])
 
   const showTimeEstimates = settings.showTimeEstimates ?? false
-
+  const isCompact = viewMode === 'compact'
   const loading = syncState.status === 'syncing'
   const lastFetched = syncState.lastSyncAt ? new Date(syncState.lastSyncAt) : null
 
@@ -970,17 +1169,48 @@ export default function Panel() {
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="h-screen w-screen aurora" style={{ WebkitUserSelect: 'none', userSelect: 'none' }}>
+    <div
+      className="h-screen w-screen aurora"
+      style={{ WebkitUserSelect: 'none', userSelect: 'none' }}
+      onClick={() => contextMenu && setContextMenu(null)}
+    >
       <div className="glass relative w-full h-full flex flex-col overflow-hidden">
 
-        {/* ── Header — changes when settings is open ── */}
-        <header className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-white/5 shrink-0">
+        {/* ── Command palette overlay ── */}
+        <AnimatePresence>
+          {showPalette && (
+            <motion.div
+              key="palette"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.12 }}
+              className="absolute inset-0 z-50"
+            >
+              <CommandPalette assignments={[...assignments, ...personalAssignments]} onClose={() => setShowPalette(false)} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ── Snooze context menu ── */}
+        {contextMenu && (
+          <>
+            <div className="absolute inset-0 z-40" onClick={() => setContextMenu(null)} />
+            <SnoozeContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              assignmentId={contextMenu.assignmentId}
+              onSnooze={handleSnooze}
+              onClose={() => setContextMenu(null)}
+            />
+          </>
+        )}
+
+        {/* ── Header ── */}
+        <header className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-white/5 shrink-0 header-shimmer">
           {showSettings ? (
             <div className="flex items-center gap-2 w-full">
-              <button
-                onClick={() => setShowSettings(false)}
-                className="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
-              >
+              <button onClick={() => setShowSettings(false)} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors">
                 <ArrowLeft className="w-4 h-4" />
               </button>
               <h2 className="text-base font-semibold">Settings</h2>
@@ -1009,18 +1239,25 @@ export default function Panel() {
               </div>
               <div className="flex items-center gap-1">
                 <button
-                  onClick={triggerSync}
-                  disabled={loading}
-                  className="p-2 rounded-lg hover:bg-white/5 transition-colors disabled:opacity-40"
-                  title="Refresh"
+                  onClick={() => setShowPalette(true)}
+                  className="p-2 rounded-lg hover:bg-white/5 transition-colors"
+                  title="Search assignments (⌘K)"
                 >
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  <Search className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => setShowSettings(true)}
+                  onClick={handleToggleViewMode}
                   className="p-2 rounded-lg hover:bg-white/5 transition-colors"
-                  title="Settings"
+                  title={isCompact ? 'Switch to expanded view' : 'Switch to compact view'}
                 >
+                  {isCompact ? <LayoutList className="w-4 h-4" /> : <List className="w-4 h-4" />}
+                </button>
+                <button onClick={triggerSync} disabled={loading}
+                  className="p-2 rounded-lg hover:bg-white/5 transition-colors disabled:opacity-40" title="Refresh">
+                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+                <button onClick={() => setShowSettings(true)}
+                  className="p-2 rounded-lg hover:bg-white/5 transition-colors" title="Settings">
                   <SettingsIcon className="w-4 h-4" />
                 </button>
               </div>
@@ -1028,7 +1265,7 @@ export default function Panel() {
           )}
         </header>
 
-        {/* ── Tabs (hidden in settings) ── */}
+        {/* ── Tabs ── */}
         {!showSettings && visibleAssignments.length > 0 && (
           <div className="px-4 pt-3 flex items-center gap-1 shrink-0">
             <TabButton active={tab === 'assignments'} onClick={() => switchTab('assignments')}>
@@ -1048,58 +1285,35 @@ export default function Panel() {
         {/* ── Body ── */}
         <AnimatePresence mode="wait" initial={false}>
           {showSettings ? (
-            <motion.div
-              key="settings"
-              initial={{ x: 24, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: -24, opacity: 0 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="flex-1 overflow-y-auto"
-            >
-              <SettingsPanel
-                settings={settings}
-                courses={courses}
-                hideOldOverdue={hideOldOverdue}
-                onToggleHideOldOverdue={handleToggleHideOldOverdue}
-                onSave={saveSettings}
-              />
+            <motion.div key="settings"
+              initial={{ x: 24, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -24, opacity: 0 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }} className="flex-1 overflow-y-auto">
+              <SettingsPanel settings={settings} courses={courses} hideOldOverdue={hideOldOverdue}
+                onToggleHideOldOverdue={handleToggleHideOldOverdue} onSave={saveSettings} />
             </motion.div>
           ) : (
-            <motion.div
-              key="main"
-              initial={{ x: -24, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: 24, opacity: 0 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="flex-1 overflow-y-auto"
-            >
+            <motion.div key="main"
+              initial={{ x: -24, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 24, opacity: 0 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }} className="flex-1 overflow-y-auto">
               {visibleAssignments.length === 0 ? (
                 <EmptyState />
               ) : tab === 'calendar' ? (
                 <CalendarView
-                  assignments={visibleAssignments}
-                  completed={completedIds}
-                  onToggle={handleToggleComplete}
-                  estimates={estimates}
-                  onSetEstimate={handleSetEstimate}
-                  showEstimate={showTimeEstimates}
+                  assignments={visibleAssignments} completed={completedIds} onToggle={handleToggleComplete}
+                  estimates={estimates} onSetEstimate={handleSetEstimate} showEstimate={showTimeEstimates}
+                  onSnooze={handleSnoozeClick}
                 />
               ) : tab === 'assignments' ? (
                 <GroupedList
-                  groups={groups}
-                  completed={completedIds}
-                  onToggle={handleToggleComplete}
-                  estimates={estimates}
-                  onSetEstimate={handleSetEstimate}
-                  showEstimate={showTimeEstimates}
+                  groups={groups} completed={completedIds} onToggle={handleToggleComplete}
+                  estimates={estimates} onSetEstimate={handleSetEstimate} showEstimate={showTimeEstimates}
+                  itemCompact={isCompact} onSnooze={handleSnoozeClick}
                 />
               ) : selectedCourse ? (
                 /* Course drill-down */
                 <div className="p-4 flex flex-col gap-3">
-                  <button
-                    onClick={() => setSelectedCourse(null)}
-                    className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
-                  >
+                  <button onClick={() => setSelectedCourse(null)}
+                    className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit">
                     <ArrowLeft className="w-3.5 h-3.5" /> All courses
                   </button>
                   <div>
@@ -1114,13 +1328,9 @@ export default function Panel() {
                     <div className="text-xs text-muted-foreground py-6 text-center">No assignments.</div>
                   ) : (
                     <GroupedList
-                      groups={courseGroups}
-                      completed={completedIds}
-                      onToggle={handleToggleComplete}
-                      estimates={estimates}
-                      onSetEstimate={handleSetEstimate}
-                      showEstimate={showTimeEstimates}
-                      compact
+                      groups={courseGroups} completed={completedIds} onToggle={handleToggleComplete}
+                      estimates={estimates} onSetEstimate={handleSetEstimate} showEstimate={showTimeEstimates}
+                      compact itemCompact={isCompact} onSnooze={handleSnoozeClick}
                     />
                   )}
                 </div>
@@ -1128,15 +1338,10 @@ export default function Panel() {
                 /* Course list */
                 <div className="p-4 flex flex-col gap-2">
                   {courseList.map(c => (
-                    <button
-                      key={c.id}
-                      onClick={() => setSelectedCourse(c.id)}
-                      className="glass-inset rounded-xl p-3 flex items-center gap-3 hover:bg-white/5 transition-colors text-left"
-                    >
-                      <div
-                        className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
-                        style={{ background: 'var(--gradient-primary)' }}
-                      >
+                    <button key={c.id} onClick={() => setSelectedCourse(c.id)}
+                      className="glass-inset rounded-xl p-3 flex items-center gap-3 hover:bg-white/5 transition-colors text-left">
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                        style={{ background: 'var(--gradient-primary)' }}>
                         <BookOpen className="w-4 h-4 text-primary-foreground" />
                       </div>
                       <div className="flex-1 min-w-0">
@@ -1156,12 +1361,31 @@ export default function Panel() {
           )}
         </AnimatePresence>
 
-        {/* Add Task Form (hidden in settings) */}
+        {/* Add Task Form */}
         {!showSettings && showAddTask && (
           <AddTaskForm onAdd={handleAddTask} onCancel={() => setShowAddTask(false)} />
         )}
 
-        {/* ── Footer (hidden in settings) ── */}
+        {/* Snoozed panel */}
+        {!showSettings && showSnoozedPanel && snoozedAssignments.length > 0 && (
+          <div className="border-t border-white/5 px-4 py-3 flex flex-col gap-2 max-h-48 overflow-y-auto shrink-0">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Snoozed</div>
+            {snoozedAssignments.map(a => (
+              <div key={a.id} className="glass-inset rounded-lg px-3 py-1.5 flex items-center gap-2" style={{ height: 32 }}>
+                <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: getCourseColor(a.courseName) }} />
+                <span className="flex-1 text-xs truncate">{a.title}</span>
+                <button
+                  onClick={() => handleUnsnooze(a.id)}
+                  className="text-[10px] text-primary hover:text-foreground transition-colors shrink-0"
+                >
+                  Unsnooze
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Footer ── */}
         {!showSettings && (
           <footer className="px-5 py-2.5 border-t border-white/5 text-[10px] text-muted-foreground flex items-center justify-between gap-2 shrink-0">
             <span className="truncate">
@@ -1170,12 +1394,20 @@ export default function Panel() {
                 : 'Not synced'}
             </span>
             <div className="flex items-center gap-1 shrink-0">
-              {overdueIds.length > 0 && (
+              {snoozedAssignments.length > 0 && (
                 <button
-                  onClick={clearOverdue}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md hover:bg-white/5 transition-colors text-foreground/80"
-                  title="Mark all overdue as done"
+                  onClick={() => setShowSnoozedPanel(v => !v)}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-md hover:bg-white/5 transition-colors ${showSnoozedPanel ? 'text-primary' : 'text-foreground/60'}`}
+                  title="Show snoozed assignments"
                 >
+                  <BellOff className="w-3 h-3" />
+                  {snoozedAssignments.length} snoozed
+                </button>
+              )}
+              {overdueIds.length > 0 && (
+                <button onClick={clearOverdue}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md hover:bg-white/5 transition-colors text-foreground/80"
+                  title="Mark all overdue as done">
                   <CheckCheck className="w-3 h-3" />
                   Clear {overdueIds.length} overdue
                 </button>
