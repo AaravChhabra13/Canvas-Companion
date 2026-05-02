@@ -160,10 +160,6 @@ Key files:
 - Syncs automatically across all the user's Macs via iCloud for free
 - No backend, no server, no account needed
 
-### Web companion view
-- On each sync, write a static read-only HTML file of the current dashboard
-- User can open this file on their phone browser to see assignments
-- Auto-regenerated on every sync so it stays current
 
 ## Phase 5.2 — UI/UX refinements (PLANNED)
 
