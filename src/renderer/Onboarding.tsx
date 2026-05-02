@@ -334,7 +334,16 @@ export default function Onboarding() {
 
 
   return (
-    <div className="w-screen h-screen aurora" style={{ WebkitUserSelect: 'none', userSelect: 'none' }}>
+    <div
+      className="w-screen h-screen aurora"
+      style={{
+        WebkitUserSelect: 'none',
+        userSelect: 'none',
+        background: 'hsl(220 20% 10%)',
+        '--foreground': '0 0% 90%',
+        '--muted-foreground': '0 0% 70%',
+      } as React.CSSProperties}
+    >
       <div className="glass w-full h-full flex flex-col overflow-hidden">
         {/* Drag handle titlebar */}
         <div style={{ height: 28, flexShrink: 0, WebkitAppRegion: 'drag' } as React.CSSProperties} />
@@ -522,7 +531,7 @@ function MethodCard({
   onGuide: () => void
 }) {
   return (
-    <div className="glass-inset rounded-2xl p-4 flex flex-col gap-3">
+    <div className="glass rounded-2xl p-4 flex flex-col gap-3">
       <div className="flex items-start gap-3">
         <div
           className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
@@ -868,7 +877,7 @@ function DailyDigestScreen({
       </div>
 
       {/* Toggle row */}
-      <div className="glass-inset rounded-2xl p-4 flex items-center justify-between gap-4">
+      <div className="glass rounded-2xl p-4 flex items-center justify-between gap-4">
         <div>
           <div className="text-sm font-medium">Enable daily digest</div>
           <div className="text-xs text-muted-foreground mt-0.5">Fires once a day at your chosen time</div>
@@ -878,7 +887,7 @@ function DailyDigestScreen({
 
       {/* Time picker */}
       {enabled && (
-        <div className="glass-inset rounded-2xl p-4 flex flex-col gap-3">
+        <div className="glass rounded-2xl p-4 flex flex-col gap-3">
           <div className="text-xs uppercase tracking-wider text-muted-foreground">Notify me at</div>
           <div className="flex items-center gap-3">
             <select

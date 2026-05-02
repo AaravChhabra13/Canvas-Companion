@@ -42,8 +42,8 @@
     --radius: 1rem;
 
     /* Glass tokens */
-    --glass-bg: 220 20% 15% / 0.5;
-    --glass-border: 0 0% 100% / 0.07;
+    --glass-bg: 220 20% 15% / 0.35;
+    --glass-border: 0 0% 100% / 0.12;
     --glass-highlight: 0 0% 100% / 0.05;
     --glass-shadow: 220 30% 2% / 0.55;
 
@@ -76,50 +76,36 @@
   }
 }
 
-@keyframes shimmer {
-  0%   { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
 @layer components {
   .glass {
-    background: hsl(var(--glass-bg));
-    backdrop-filter: blur(60px) saturate(180%);
-    -webkit-backdrop-filter: blur(60px) saturate(180%);
-    border: 1px solid hsl(var(--glass-border));
-    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.1), 0 8px 32px hsl(220 30% 2% / 0.6);
+    background: linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03));
+    backdrop-filter: blur(80px) saturate(200%);
+    -webkit-backdrop-filter: blur(80px) saturate(200%);
+    border: 1px solid rgba(255,255,255,0.12);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 8px 32px rgba(0,0,0,0.4);
   }
   .glass-inset {
-    background: linear-gradient(180deg, hsl(0 0% 100% / 0.07), hsl(0 0% 100% / 0.03));
-    border: 1px solid hsl(0 0% 100% / 0.12);
-    backdrop-filter: blur(20px) saturate(160%);
+    background: linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.02));
+    backdrop-filter: blur(40px) saturate(160%);
+    -webkit-backdrop-filter: blur(40px) saturate(160%);
+    border: 1px solid rgba(255,255,255,0.1);
     transition: all 0.2s ease;
   }
   .glass-inset:hover {
-    background: linear-gradient(180deg, hsl(0 0% 100% / 0.08), hsl(0 0% 100% / 0.04));
-    transform: scale(1.005);
+    background: linear-gradient(135deg, rgba(255,255,255,0.11), rgba(255,255,255,0.04));
+    border-color: rgba(255,255,255,0.15);
   }
   .aurora {
-    background-image: var(--gradient-aurora);
+    background-image:
+      radial-gradient(circle at 20% 0%, hsla(212,90%,50%,0.35), transparent 55%),
+      radial-gradient(circle at 80% 30%, hsla(200,80%,50%,0.28), transparent 60%),
+      radial-gradient(circle at 50% 100%, hsla(220,60%,40%,0.28), transparent 60%);
   }
   .text-gradient {
     background: var(--gradient-primary);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-  }
-  .header-shimmer {
-    position: relative;
-    overflow: hidden;
-  }
-  .header-shimmer::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, transparent 20%, hsl(0 0% 100% / 0.04) 50%, transparent 80%);
-    background-size: 200% 100%;
-    animation: shimmer 5s linear infinite;
-    pointer-events: none;
   }
 }
 

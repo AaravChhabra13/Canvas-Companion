@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   RefreshCw, Settings as SettingsIcon, BookOpen, Inbox,
   CheckCheck, ChevronRight, ChevronLeft, ArrowLeft, Save, EyeOff, Bell, Plus, Plug,
-  Calendar as CalendarIcon, Clock, Search, List, LayoutList, BellOff,
+  Calendar as CalendarIcon, Clock, Search, BellOff,
 } from 'lucide-react'
 import Fuse from 'fuse.js'
 import { formatDistanceToNowStrict, isToday, format } from 'date-fns'
@@ -291,12 +291,12 @@ function SnoozeContextMenu({
 
 // ── Calendar view ─────────────────────────────────────────────────────────────
 
-function getDayBg(data: { count: number; assignments: Assignment[] } | undefined): string {
-  if (!data || data.count === 0) return 'transparent'
-  if (data.assignments.some(a => a.isOverdue)) return 'rgba(185, 28, 28, 0.85)'
-  if (data.count >= 5) return 'rgba(239, 68, 68, 0.65)'
-  if (data.count >= 3) return 'rgba(249, 115, 22, 0.45)'
-  return 'rgba(245, 158, 11, 0.25)'
+function getHeatmapStyle(count: number, hasOverdue: boolean): React.CSSProperties {
+  if (hasOverdue) return { background: 'rgba(185, 28, 28, 0.85)', borderRadius: '6px' }
+  if (count === 0) return { background: 'transparent' }
+  if (count <= 2) return { background: 'rgba(245, 158, 11, 0.25)', borderRadius: '6px' }
+  if (count <= 4) return { background: 'rgba(249, 115, 22, 0.45)', borderRadius: '6px' }
+  return { background: 'rgba(239, 68, 68, 0.65)', borderRadius: '6px' }
 }
 
 function CalendarView({
@@ -380,18 +380,18 @@ function CalendarView({
           const data = heatmap.get(k)
           const isT = k === todayK
           const isSel = k === selectedKey
-          const bg = getDayBg(data)
           const badges = data?.assignments ?? []
+          const heatStyle = getHeatmapStyle(badges.length, badges.some(a => a.isOverdue))
 
           return (
             <button
               key={k}
               onClick={() => setSelectedKey(isSel ? null : k)}
-              className="aspect-square rounded-lg p-1 flex flex-col items-start gap-0.5 text-left transition-colors overflow-hidden"
-              style={{
-                background: isSel ? 'hsl(212 90% 60% / 0.25)' : bg,
-                outline: isSel ? '1px solid hsl(212 90% 60% / 0.5)' : 'none',
-              }}
+              className="aspect-square p-1 flex flex-col items-start gap-0.5 text-left transition-colors overflow-hidden"
+              style={isSel
+                ? { background: 'hsl(212 90% 60% / 0.25)', borderRadius: '6px', outline: '1px solid hsl(212 90% 60% / 0.5)' }
+                : { ...heatStyle, outline: 'none' }
+              }
             >
               {isT ? (
                 <span
@@ -465,13 +465,6 @@ function CalendarView({
 
 // ── Settings panel ────────────────────────────────────────────────────────────
 
-const NOTIF_OPTIONS = [
-  { label: '24 hours', value: 1440 },
-  { label: '2 hours',  value: 120  },
-  { label: '30 min',   value: 30   },
-  { label: '15 min',   value: 15   },
-]
-
 function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: (v: boolean) => void }) {
   return (
     <button
@@ -507,8 +500,10 @@ function SettingsPanel({
   const [showCookie, setShowCookie] = useState(false)
   const [hasCookie, setHasCookie] = useState(false)
   const [cookieSaving, setCookieSaving] = useState(false)
-  const [interval, setInterval] = useState(settings.syncIntervalMinutes)
+  const [syncInterval, setSyncInterval] = useState(settings.syncIntervalMinutes)
+  const [lookaheadDays, setLookaheadDays] = useState(settings.lookaheadDays ?? 14)
   const [leadTimes, setLeadTimes] = useState(new Set(settings.notificationLeadTimes))
+  const [notifsEnabled, setNotifsEnabled] = useState(settings.notificationLeadTimes.length > 0)
   const [localCourses, setLocalCourses] = useState<Course[]>(courses)
   const [token, setToken] = useState('')
   const [showToken, setShowToken] = useState(false)
@@ -516,13 +511,12 @@ function SettingsPanel({
   const [tokenError, setTokenError] = useState('')
   const [hasExistingToken, setHasExistingToken] = useState(false)
   const [saving, setSaving] = useState(false)
-
   const [cseSiteUrls, setCseSiteUrls] = useState<CseSiteEntry[]>([])
   const [newCseUrl, setNewCseUrl] = useState('')
   const [newCseCourseName, setNewCseCourseName] = useState('')
   const [cseSaving, setCseSaving] = useState(false)
-
   const [showTimeEstimatesSetting, setShowTimeEstimatesSetting] = useState(settings.showTimeEstimates ?? false)
+  const [localViewMode, setLocalViewMode] = useState<'compact' | 'expanded'>(settings.viewMode ?? 'expanded')
 
   const digest = settings.dailyDigest ?? { enabled: false, hour: 8, minute: 0 }
   const [digestEnabled, setDigestEnabled] = useState(digest.enabled)
@@ -603,10 +597,12 @@ function SettingsPanel({
       {
         canvasBaseUrl: baseUrl.trim() || 'https://canvas.uw.edu',
         canvasIcalUrl: icalUrl.trim(),
-        syncIntervalMinutes: interval,
-        notificationLeadTimes: [...leadTimes],
+        syncIntervalMinutes: syncInterval,
+        lookaheadDays,
+        notificationLeadTimes: notifsEnabled ? [...leadTimes] : [],
         dailyDigest: { enabled: digestEnabled, hour: actualHour, minute: 0 },
         showTimeEstimates: showTimeEstimatesSetting,
+        viewMode: localViewMode,
       },
       localCourses,
     )
@@ -614,239 +610,252 @@ function SettingsPanel({
   }
 
   const inputCls = 'w-full glass-inset rounded-xl px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 outline-none focus:ring-1 focus:ring-primary/50'
+  const sectionLbl = 'text-xs uppercase tracking-wider text-muted-foreground'
+  const rowCls = 'glass-inset rounded-xl p-3 flex items-center justify-between gap-3'
 
   return (
-    <div className="p-5 flex flex-col gap-4">
+    <div className="flex flex-col">
+      <div className="p-5 flex flex-col gap-5">
 
-      {/* Canvas URL */}
-      <div className="flex flex-col gap-2">
-        <label className="text-xs uppercase tracking-wider text-muted-foreground">Canvas URL</label>
-        <input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
-          placeholder="https://canvas.uw.edu" spellCheck={false} className={inputCls} />
-      </div>
-
-      {/* iCal Feed URL */}
-      <div className="flex flex-col gap-2">
-        <label className="text-xs uppercase tracking-wider text-muted-foreground">iCal Feed URL</label>
-        <textarea value={icalUrl} onChange={e => setIcalUrl(e.target.value)}
-          placeholder="https://canvas.uw.edu/feeds/calendars/user_….ics"
-          rows={3} spellCheck={false} className={`${inputCls} resize-none`} />
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          Canvas → Calendar → <span className="text-foreground">Calendar Feed</span> (bottom of page)
-        </p>
-      </div>
-
-      {/* API Token */}
-      <div className="flex flex-col gap-2">
-        <label className="text-xs uppercase tracking-wider text-muted-foreground">API Token</label>
-        {hasExistingToken ? (
-          <div className="flex items-center gap-3">
-            <span className="text-xs flex-1" style={{ color: 'hsl(var(--success))' }}>✓ Token saved in system keychain</span>
-            <button onClick={handleRemoveToken} className="text-xs px-3 py-1.5 rounded-lg glass-inset hover:bg-white/5 transition-colors" style={{ color: 'hsl(var(--danger))' }}>Remove</button>
-          </div>
-        ) : (
-          <>
-            <div className="relative">
-              <input type={showToken ? 'text' : 'password'} value={token}
-                onChange={e => { setToken(e.target.value); setTokenStatus('idle') }}
-                placeholder="Paste token from Canvas" spellCheck={false} className={`${inputCls} pr-12`} />
-              <button onClick={() => setShowToken(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground hover:text-foreground">
-                {showToken ? 'Hide' : 'Show'}
-              </button>
-            </div>
-            {tokenStatus === 'ok'    && <p className="text-xs" style={{ color: 'hsl(var(--success))' }}>✓ Verified and saved</p>}
-            {tokenStatus === 'error' && <p className="text-xs" style={{ color: 'hsl(var(--danger))' }}>{tokenError}</p>}
-            <button onClick={handleTestToken} disabled={!token.trim() || tokenStatus === 'testing'}
-              className="text-xs py-2 rounded-xl font-medium text-primary-foreground disabled:opacity-40 transition-opacity"
-              style={{ background: 'var(--gradient-primary)' }}>
-              {tokenStatus === 'testing' ? 'Verifying…' : 'Test & Save Token'}
-            </button>
-          </>
-        )}
-      </div>
-
-      {/* Session Cookie */}
-      <div className="flex flex-col gap-2">
-        <label className="text-xs uppercase tracking-wider text-muted-foreground">UW Students (Session Cookie)</label>
-        {hasCookie ? (
-          <div className="flex items-center gap-3">
-            <span className="text-xs flex-1" style={{ color: 'hsl(var(--success))' }}>✓ Cookie saved — using GraphQL</span>
-            <button onClick={handleClearCookie} className="text-xs px-3 py-1.5 rounded-lg glass-inset hover:bg-white/5 transition-colors" style={{ color: 'hsl(var(--danger))' }}>Clear</button>
-          </div>
-        ) : (
-          <>
-            <div className="relative">
-              <input type={showCookie ? 'text' : 'password'} value={cookieInput}
-                onChange={e => setCookieInput(e.target.value)}
-                placeholder="Paste Cookie header value" spellCheck={false} className={`${inputCls} pr-12`} />
-              <button onClick={() => setShowCookie(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground hover:text-foreground">
-                {showCookie ? 'Hide' : 'Show'}
-              </button>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              No cookie — using iCal feed. Get this from Chrome DevTools → Network → any Canvas request → Cookie header
-            </p>
-            <button onClick={handleSaveCookie} disabled={!cookieInput.trim() || cookieSaving}
-              className="text-xs py-2 rounded-xl font-medium text-primary-foreground disabled:opacity-40 transition-opacity"
-              style={{ background: 'var(--gradient-primary)' }}>
-              {cookieSaving ? 'Saving…' : 'Save Cookie'}
-            </button>
-          </>
-        )}
-      </div>
-
-      {/* Auto-sync interval */}
-      <div className="flex flex-col gap-2">
-        <label className="text-xs uppercase tracking-wider text-muted-foreground">Auto-Sync Interval</label>
-        <select value={interval} onChange={e => setInterval(Number(e.target.value))} className={`${inputCls} appearance-auto`}>
-          {[15, 30, 60].map(v => <option key={v} value={v}>{v} minutes</option>)}
-        </select>
-      </div>
-
-      {/* Hide old overdue */}
-      <div className="glass-inset rounded-xl p-3 overflow-hidden flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <EyeOff className="w-4 h-4 text-muted-foreground shrink-0" />
-          <div className="min-w-0">
-            <div className="text-sm font-medium">Hide old overdue</div>
-            <div className="text-[11px] text-muted-foreground leading-snug">Auto-hide assignments overdue by more than 24h</div>
-          </div>
-        </div>
-        <Toggle enabled={hideOldOverdue} onToggle={onToggleHideOldOverdue} />
-      </div>
-
-      {/* Notifications */}
-      <div className="glass-inset rounded-xl p-3 flex items-start gap-3">
-        <Bell className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium mb-2">Notify before due date</div>
-          <div className="flex flex-col gap-1.5">
-            {NOTIF_OPTIONS.map(({ label, value }) => (
-              <label key={value} className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
-                <input type="checkbox" checked={leadTimes.has(value)} onChange={() => toggleLead(value)} className="accent-primary" />
-                {label}
-              </label>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Productivity */}
-      <div className="glass-inset rounded-xl p-3 overflow-hidden flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
-          <div className="min-w-0">
-            <div className="text-sm font-medium">Show time estimates</div>
-            <div className="text-[11px] text-muted-foreground leading-snug">Add time tags to assignments to track your daily workload</div>
-          </div>
-        </div>
-        <Toggle enabled={showTimeEstimatesSetting} onToggle={setShowTimeEstimatesSetting} />
-      </div>
-
-      {/* Daily digest */}
-      <div className="glass-inset rounded-xl p-3 flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
-            <div className="min-w-0">
-              <div className="text-sm font-medium">Daily digest</div>
-              <div className="text-[11px] text-muted-foreground leading-snug">Morning summary of your assignments</div>
-            </div>
-          </div>
-          <Toggle enabled={digestEnabled} onToggle={setDigestEnabled} />
-        </div>
-        {digestEnabled && (
-          <div className="flex items-center gap-2 pl-6">
-            <select value={digestHour} onChange={e => setDigestHour(Number(e.target.value))}
-              className="glass-inset rounded-lg px-2 py-1 text-xs text-foreground outline-none">
-              {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(h => <option key={h} value={h}>{h}:00</option>)}
-            </select>
-            <select value={digestAmPm} onChange={e => setDigestAmPm(e.target.value as 'AM' | 'PM')}
-              className="glass-inset rounded-lg px-2 py-1 text-xs text-foreground outline-none">
-              <option value="AM">AM</option>
-              <option value="PM">PM</option>
-            </select>
-          </div>
-        )}
-      </div>
-
-      {/* Courses */}
-      {localCourses.length > 0 && (
+        {/* 1. Canvas URL */}
         <div className="flex flex-col gap-2">
-          <label className="text-xs uppercase tracking-wider text-muted-foreground">Courses</label>
-          <div className="flex flex-col gap-2">
-            {localCourses.map(c => (
-              <div key={c.id} className="flex items-center gap-3">
-                <label className="relative cursor-pointer shrink-0">
-                  <div className="w-4 h-4 rounded-full border border-white/20" style={{ background: c.color }} />
-                  <input type="color" value={c.color}
-                    onChange={e => setLocalCourses(prev => prev.map(x => x.id === c.id ? { ...x, color: e.target.value } : x))}
-                    className="absolute opacity-0 w-0 h-0 pointer-events-none" tabIndex={-1} />
-                </label>
-                <span className={`flex-1 text-xs truncate ${c.hidden ? 'text-muted-foreground/40' : 'text-foreground'}`}>{c.name}</span>
-                <button
-                  onClick={() => setLocalCourses(prev => prev.map(x => x.id === c.id ? { ...x, hidden: !x.hidden } : x))}
-                  className="text-xs text-muted-foreground hover:text-foreground" title={c.hidden ? 'Show' : 'Hide'}
-                >
-                  {c.hidden ? '○' : '●'}
+          <label className={sectionLbl}>Canvas URL</label>
+          <input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
+            placeholder="https://canvas.uw.edu" spellCheck={false} className={inputCls} />
+        </div>
+
+        {/* 2. UW CSE Course Sites */}
+        <div className="flex flex-col gap-2">
+          <label className={sectionLbl}>UW CSE Course Sites</label>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Add your CSE course websites to pull assignments directly from course pages
+          </p>
+          {cseSiteUrls.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              {cseSiteUrls.map((entry, i) => (
+                <div key={i} className="glass-inset rounded-xl px-3 py-2 flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium truncate">{entry.courseName}</div>
+                    <div className="text-[10px] text-muted-foreground truncate">{entry.url}</div>
+                  </div>
+                  <button onClick={() => handleRemoveCseSite(i)}
+                    className="text-[10px] px-2 py-1 rounded-lg hover:bg-white/5 transition-colors shrink-0"
+                    style={{ color: 'hsl(var(--danger))' }}>Remove</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <input type="url" value={newCseUrl} onChange={e => setNewCseUrl(e.target.value)}
+            placeholder="https://courses.cs.washington.edu/courses/cseXXX/26sp/"
+            spellCheck={false} className={inputCls} />
+          <input type="text" value={newCseCourseName} onChange={e => setNewCseCourseName(e.target.value)}
+            placeholder="Course name (e.g. CSE 123)"
+            spellCheck={false} className={inputCls}
+            onKeyDown={e => { if (e.key === 'Enter') handleAddCseSite() }} />
+          <button onClick={handleAddCseSite}
+            disabled={!newCseUrl.trim() || !newCseCourseName.trim() || cseSaving}
+            className="text-xs py-2 rounded-xl font-medium text-primary-foreground disabled:opacity-40 transition-opacity"
+            style={{ background: 'var(--gradient-primary)' }}>
+            {cseSaving ? 'Adding…' : 'Add Site'}
+          </button>
+        </div>
+
+        {/* 3. Display */}
+        <div className="flex flex-col gap-2">
+          <label className={sectionLbl}>Display</label>
+          <div className={rowCls}>
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Compact view</div>
+              <div className="text-[11px] text-muted-foreground leading-snug">Show only title and due date, smaller rows</div>
+            </div>
+            <Toggle enabled={localViewMode === 'compact'} onToggle={v => setLocalViewMode(v ? 'compact' : 'expanded')} />
+          </div>
+          <div className={rowCls}>
+            <div className="flex items-center gap-2 min-w-0">
+              <EyeOff className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div className="min-w-0">
+                <div className="text-sm font-medium">Hide old overdue</div>
+                <div className="text-[11px] text-muted-foreground leading-snug">Auto-hide assignments overdue by more than 24h</div>
+              </div>
+            </div>
+            <Toggle enabled={hideOldOverdue} onToggle={onToggleHideOldOverdue} />
+          </div>
+          <div className={rowCls}>
+            <div className="flex items-center gap-2 min-w-0">
+              <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div className="min-w-0">
+                <div className="text-sm font-medium">Show time estimates</div>
+                <div className="text-[11px] text-muted-foreground leading-snug">Track daily workload with time tags on assignments</div>
+              </div>
+            </div>
+            <Toggle enabled={showTimeEstimatesSetting} onToggle={setShowTimeEstimatesSetting} />
+          </div>
+        </div>
+
+        {/* 4. Notifications */}
+        <div className="flex flex-col gap-2">
+          <label className={sectionLbl}>Notifications</label>
+          <div className={rowCls}>
+            <div className="flex items-center gap-2 min-w-0">
+              <Bell className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div className="text-sm font-medium">Enable notifications</div>
+            </div>
+            <Toggle enabled={notifsEnabled} onToggle={setNotifsEnabled} />
+          </div>
+          {notifsEnabled && (
+            <div className="flex flex-col gap-1.5">
+              {[
+                { label: '24 hours before due', value: 1440 },
+                { label: '2 hours before due', value: 120 },
+                { label: '30 minutes before due', value: 30 },
+                { label: '15 minutes before due', value: 15 },
+              ].map(({ label, value }) => (
+                <div key={value} className={rowCls}>
+                  <span className="text-sm text-foreground/80">{label}</span>
+                  <Toggle enabled={leadTimes.has(value)} onToggle={() => toggleLead(value)} />
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="glass-inset rounded-xl p-3 flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Daily digest</div>
+                  <div className="text-[11px] text-muted-foreground leading-snug">Morning summary of your assignments</div>
+                </div>
+              </div>
+              <Toggle enabled={digestEnabled} onToggle={setDigestEnabled} />
+            </div>
+            {digestEnabled && (
+              <div className="flex items-center gap-2 pl-6">
+                <span className="text-xs text-muted-foreground">Send at</span>
+                <select value={digestHour} onChange={e => setDigestHour(Number(e.target.value))}
+                  className="glass-inset rounded-lg px-2 py-1 text-xs text-foreground outline-none">
+                  {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(h => <option key={h} value={h}>{h}:00</option>)}
+                </select>
+                <select value={digestAmPm} onChange={e => setDigestAmPm(e.target.value as 'AM' | 'PM')}
+                  className="glass-inset rounded-lg px-2 py-1 text-xs text-foreground outline-none">
+                  <option value="AM">AM</option>
+                  <option value="PM">PM</option>
+                </select>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 5. Sync interval + Lookahead days */}
+        <div className="flex flex-col gap-2">
+          <label className={sectionLbl}>Sync</label>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] text-muted-foreground">Auto-sync interval</label>
+            <select value={syncInterval} onChange={e => setSyncInterval(Number(e.target.value))} className={`${inputCls} appearance-auto`}>
+              {[15, 30, 60].map(v => <option key={v} value={v}>{v} minutes</option>)}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] text-muted-foreground">Assignment lookahead</label>
+              <span className="text-[11px] text-foreground/60">Show assignments up to {lookaheadDays} days ahead</span>
+            </div>
+            <select value={lookaheadDays} onChange={e => setLookaheadDays(Number(e.target.value))} className={`${inputCls} appearance-auto`}>
+              {[7, 14, 30, 60, 90].map(v => <option key={v} value={v}>{v} days</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* 6. Canvas iCal Feed URL */}
+        <div className="flex flex-col gap-2">
+          <label className={sectionLbl}>Canvas iCal Feed URL</label>
+          <textarea value={icalUrl} onChange={e => setIcalUrl(e.target.value)}
+            placeholder="https://canvas.uw.edu/feeds/calendars/user_….ics"
+            rows={3} spellCheck={false} className={`${inputCls} resize-none`} />
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Canvas → Calendar → <span className="text-foreground">Calendar Feed</span> (bottom of page)
+          </p>
+        </div>
+
+        {/* 7. API Token */}
+        <div className="flex flex-col gap-2">
+          <label className={sectionLbl}>API Token</label>
+          {hasExistingToken ? (
+            <div className="flex items-center gap-3">
+              <span className="text-xs flex-1" style={{ color: 'hsl(var(--success))' }}>✓ Token saved in system keychain</span>
+              <button onClick={handleRemoveToken} className="text-xs px-3 py-1.5 rounded-lg glass-inset hover:bg-white/5 transition-colors" style={{ color: 'hsl(var(--danger))' }}>Remove</button>
+            </div>
+          ) : (
+            <>
+              <div className="relative">
+                <input type={showToken ? 'text' : 'password'} value={token}
+                  onChange={e => { setToken(e.target.value); setTokenStatus('idle') }}
+                  placeholder="Paste token from Canvas" spellCheck={false} className={`${inputCls} pr-12`} />
+                <button onClick={() => setShowToken(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground hover:text-foreground">
+                  {showToken ? 'Hide' : 'Show'}
                 </button>
               </div>
-            ))}
-          </div>
-          <p className="text-[11px] text-muted-foreground">Course colors apply on next sync</p>
+              {tokenStatus === 'ok'    && <p className="text-xs" style={{ color: 'hsl(var(--success))' }}>✓ Verified and saved</p>}
+              {tokenStatus === 'error' && <p className="text-xs" style={{ color: 'hsl(var(--danger))' }}>{tokenError}</p>}
+              <button onClick={handleTestToken} disabled={!token.trim() || tokenStatus === 'testing'}
+                className="text-xs py-2 rounded-xl font-medium text-primary-foreground disabled:opacity-40 transition-opacity"
+                style={{ background: 'var(--gradient-primary)' }}>
+                {tokenStatus === 'testing' ? 'Verifying…' : 'Test & Save Token'}
+              </button>
+            </>
+          )}
         </div>
-      )}
 
-      {/* UW CSE Course Sites */}
-      <div className="flex flex-col gap-2">
-        <label className="text-xs uppercase tracking-wider text-muted-foreground">UW CSE Course Sites</label>
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
-          Add your CSE course websites to pull assignments directly from course pages
-        </p>
-        {cseSiteUrls.length > 0 && (
-          <div className="flex flex-col gap-1.5">
-            {cseSiteUrls.map((entry, i) => (
-              <div key={i} className="glass-inset rounded-xl px-3 py-2 flex items-center gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium truncate">{entry.courseName}</div>
-                  <div className="text-[10px] text-muted-foreground truncate">{entry.url}</div>
-                </div>
-                <button onClick={() => handleRemoveCseSite(i)}
-                  className="text-[10px] px-2 py-1 rounded-lg hover:bg-white/5 transition-colors shrink-0"
-                  style={{ color: 'hsl(var(--danger))' }}>Remove</button>
+        {/* 8. Session Cookie (GraphQL) */}
+        <div className="flex flex-col gap-2">
+          <label className={sectionLbl}>Session Cookie (GraphQL)</label>
+          {hasCookie ? (
+            <div className="flex items-center gap-3">
+              <span className="text-xs flex-1" style={{ color: 'hsl(var(--success))' }}>✓ Cookie saved — using GraphQL</span>
+              <button onClick={handleClearCookie} className="text-xs px-3 py-1.5 rounded-lg glass-inset hover:bg-white/5 transition-colors" style={{ color: 'hsl(var(--danger))' }}>Clear</button>
+            </div>
+          ) : (
+            <>
+              <div className="relative">
+                <input type={showCookie ? 'text' : 'password'} value={cookieInput}
+                  onChange={e => setCookieInput(e.target.value)}
+                  placeholder="Paste Cookie header value" spellCheck={false} className={`${inputCls} pr-12`} />
+                <button onClick={() => setShowCookie(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground hover:text-foreground">
+                  {showCookie ? 'Hide' : 'Show'}
+                </button>
               </div>
-            ))}
-          </div>
-        )}
-        <input type="url" value={newCseUrl} onChange={e => setNewCseUrl(e.target.value)}
-          placeholder="https://courses.cs.washington.edu/courses/cseXXX/26sp/"
-          spellCheck={false} className={inputCls} />
-        <input type="text" value={newCseCourseName} onChange={e => setNewCseCourseName(e.target.value)}
-          placeholder="Course name (e.g. CSE 123)"
-          spellCheck={false} className={inputCls}
-          onKeyDown={e => { if (e.key === 'Enter') handleAddCseSite() }} />
-        <button onClick={handleAddCseSite}
-          disabled={!newCseUrl.trim() || !newCseCourseName.trim() || cseSaving}
-          className="text-xs py-2 rounded-xl font-medium text-primary-foreground disabled:opacity-40 transition-opacity"
-          style={{ background: 'var(--gradient-primary)' }}>
-          {cseSaving ? 'Adding…' : 'Add Site'}
-        </button>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                No cookie — using iCal feed. Get this from Chrome DevTools → Network → any Canvas request → Cookie header
+              </p>
+              <button onClick={handleSaveCookie} disabled={!cookieInput.trim() || cookieSaving}
+                className="text-xs py-2 rounded-xl font-medium text-primary-foreground disabled:opacity-40 transition-opacity"
+                style={{ background: 'var(--gradient-primary)' }}>
+                {cookieSaving ? 'Saving…' : 'Save Cookie'}
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* 9. Danger zone */}
+        <div className="flex flex-col gap-2">
+          <button onClick={() => window.ipcRenderer.invoke('onboarding:reopen')}
+            className="glass-inset flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors">
+            <Plug className="w-3.5 h-3.5" />
+            Reconnect / Change setup method
+          </button>
+        </div>
+
+        <div style={{ height: '60px' }} />
       </div>
 
-      {/* Save */}
-      <button onClick={handleSave} disabled={saving}
-        className="rounded-xl py-2.5 px-4 font-medium text-primary-foreground flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50 mt-2"
-        style={{ background: 'var(--gradient-primary)', boxShadow: 'var(--shadow-glow)' }}>
-        <Save className="w-4 h-4" />
-        {saving ? 'Saving…' : 'Save & Sync'}
-      </button>
-
-      {/* Change connection method */}
-      <button onClick={() => window.ipcRenderer.invoke('onboarding:reopen')}
-        className="flex items-center justify-center gap-2 w-full py-2 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors mt-1">
-        <Plug className="w-3.5 h-3.5" />
-        Change connection method
-      </button>
+      {/* Sticky Save & Sync */}
+      <div style={{ position: 'sticky', bottom: 0, padding: '12px 16px' }}>
+        <button onClick={handleSave} disabled={saving}
+          className="w-full rounded-xl py-2.5 px-4 font-medium text-primary-foreground flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50"
+          style={{ background: 'var(--gradient-primary)', boxShadow: 'var(--shadow-glow)' }}>
+          <Save className="w-4 h-4" />
+          {saving ? 'Saving…' : 'Save & Sync'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -1020,7 +1029,9 @@ export default function Panel() {
 
   const saveSettings = useCallback(async (patch: Partial<Settings>, updatedCourses?: Course[]) => {
     const updated = await window.ipcRenderer.invoke('settings:set', patch) as Settings
-    setSettings({ ...SETTINGS_DEFAULTS, ...updated })
+    const merged = { ...SETTINGS_DEFAULTS, ...updated }
+    setSettings(merged)
+    setViewMode(merged.viewMode ?? 'expanded')
     if (updatedCourses) {
       const saved = await window.ipcRenderer.invoke('courses:save', updatedCourses) as Course[]
       setCourses(saved)
@@ -1053,12 +1064,6 @@ export default function Panel() {
     setHideOldOverdue(v)
     await window.ipcRenderer.invoke('settings:set', { hideOldOverdue: v })
   }, [])
-
-  const handleToggleViewMode = useCallback(async () => {
-    const next = viewMode === 'expanded' ? 'compact' : 'expanded'
-    setViewMode(next)
-    await window.ipcRenderer.invoke('settings:set', { viewMode: next })
-  }, [viewMode])
 
   const handleSnoozeClick = useCallback((id: string, position: { x: number; y: number }) => {
     setContextMenu({ assignmentId: id, ...position })
@@ -1207,7 +1212,7 @@ export default function Panel() {
         )}
 
         {/* ── Header ── */}
-        <header className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-white/5 shrink-0 header-shimmer">
+        <header className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-white/5 shrink-0">
           {showSettings ? (
             <div className="flex items-center gap-2 w-full">
               <button onClick={() => setShowSettings(false)} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors">
@@ -1244,13 +1249,6 @@ export default function Panel() {
                   title="Search assignments (⌘K)"
                 >
                   <Search className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={handleToggleViewMode}
-                  className="p-2 rounded-lg hover:bg-white/5 transition-colors"
-                  title={isCompact ? 'Switch to expanded view' : 'Switch to compact view'}
-                >
-                  {isCompact ? <LayoutList className="w-4 h-4" /> : <List className="w-4 h-4" />}
                 </button>
                 <button onClick={triggerSync} disabled={loading}
                   className="p-2 rounded-lg hover:bg-white/5 transition-colors disabled:opacity-40" title="Refresh">

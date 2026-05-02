@@ -102,6 +102,7 @@ function createOnboardingWindow(): void {
     resizable: false,
     skipTaskbar: false,
     alwaysOnTop: true,
+    backgroundColor: '#0d1117',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
