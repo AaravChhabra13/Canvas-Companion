@@ -199,7 +199,7 @@ Key files:
 - Subtle animated shimmer on panel header
 - Glass card hover state with scale(1.005) and smooth transitions
 
-## Phase 5.1 — Cross-device and sync (DEFERRED — building after Phase 5.2)
+## Phase 5.1 — Cross-device and sync (DEFERRED — building after Phase 5.3)
 Deferred to after shipping. iCloud sync for personal tasks is a nice-to-have
 that only helps users with multiple Macs. Shipping Phase 5.3 first is higher priority.
 
@@ -207,6 +207,7 @@ that only helps users with multiple Macs. Shipping Phase 5.3 first is higher pri
 - Move storage to ~/Library/Mobile Documents/com~apple~CloudDocs/CanvasCompanion/tasks.json
 - Syncs automatically across all Macs via iCloud for free
 - No backend or server needed
+
 ## Phase 5.3 — Reliability, shipping polish and deployment (PLANNED)
 
 ### Deployment and distribution
