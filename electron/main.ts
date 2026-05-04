@@ -32,6 +32,7 @@ let panel: BrowserWindow | null = null
 let onboardingWin: BrowserWindow | null = null
 let lastBlurTime = 0
 let panelBlocked = false
+let searchActive = false
 
 // ── Tray icon ─────────────────────────────────────────────────────────────────
 
@@ -84,7 +85,7 @@ function createPanel(): void {
   })
 
   panel.webContents.on('before-input-event', (_ev, input) => {
-    if (input.type === 'keyDown' && input.key === 'Escape') panel?.hide()
+    if (input.type === 'keyDown' && input.key === 'Escape' && !searchActive) panel?.hide()
   })
 }
 
@@ -198,6 +199,8 @@ app.whenReady().then(() => {
   nativeTheme.on('updated', updateTrayBadge)
 
   createPanel()
+
+  ipcMain.on('search:active', (_event, active: boolean) => { searchActive = active })
 
   ipcMain.on('panel:resize', (_event, width: number, height: number) => {
     if (!panel || !tray) return

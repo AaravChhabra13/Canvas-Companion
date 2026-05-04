@@ -100,8 +100,12 @@ export function AssignmentItem({
         animate={{ opacity: completed ? 0.5 : 1, y: 0 }}
         transition={{ delay: index * 0.02, duration: 0.2 }}
         onContextMenu={handleContextMenu}
-        className="glass-inset rounded-lg px-3 flex items-center gap-2 hover:bg-white/5 transition-colors"
-        style={{ height: 32 }}
+        className="rounded-lg px-3 flex items-center gap-2 hover:bg-white/5 transition-colors"
+        style={{
+          height: 32,
+          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(99, 102, 241, 0.05))',
+          border: '1px solid rgba(255,255,255,0.1)',
+        }}
       >
         {/* Checkbox */}
         <button
@@ -145,7 +149,11 @@ export function AssignmentItem({
       animate={{ opacity: completed ? 0.5 : 1, y: 0 }}
       transition={{ delay: index * 0.02, duration: 0.25 }}
       onContextMenu={handleContextMenu}
-      className="glass-inset rounded-xl p-3 flex items-start gap-3 hover:bg-white/5 transition-colors"
+      className="rounded-xl p-3 flex items-start gap-3 hover:bg-white/5 transition-colors"
+      style={{
+        background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(99, 102, 241, 0.05))',
+        border: '1px solid rgba(255,255,255,0.1)',
+      }}
     >
       {/* Checkbox */}
       <div className="pt-0.5 shrink-0">

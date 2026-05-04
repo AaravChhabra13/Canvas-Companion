@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   RefreshCw, Settings as SettingsIcon, BookOpen, Inbox,
   CheckCheck, ChevronRight, ChevronLeft, ArrowLeft, EyeOff, Bell, Plus, Plug,
-  Calendar as CalendarIcon, Clock, Search, BellOff,
+  Calendar as CalendarIcon, Clock, Search, BellOff, X,
 } from 'lucide-react'
 import Fuse from 'fuse.js'
 import { formatDistanceToNowStrict, isToday, format } from 'date-fns'
@@ -145,94 +145,6 @@ const EmptyState = () => (
   </div>
 )
 
-// ── Command palette ───────────────────────────────────────────────────────────
-
-function CommandPalette({
-  assignments,
-  onClose,
-}: {
-  assignments: Assignment[]
-  onClose: () => void
-}) {
-  const [query, setQuery] = useState('')
-  const [selectedIndex, setSelectedIndex] = useState(0)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const fuse = useMemo(() => new Fuse(assignments, {
-    keys: ['title', 'courseName', 'dueAt'],
-    threshold: 0.4,
-    includeScore: true,
-  }), [assignments])
-
-  const results = useMemo(() => {
-    if (!query.trim()) return assignments.slice(0, 8)
-    return fuse.search(query).slice(0, 8).map(r => r.item)
-  }, [query, fuse, assignments])
-
-  useEffect(() => { inputRef.current?.focus() }, [])
-  useEffect(() => { setSelectedIndex(0) }, [query])
-
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Escape') { e.preventDefault(); onClose(); return }
-    if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIndex(i => Math.min(i + 1, results.length - 1)); return }
-    if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIndex(i => Math.max(i - 1, 0)); return }
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      const item = results[selectedIndex]
-      if (item?.canvasUrl) window.ipcRenderer.send('open-external', item.canvasUrl)
-      onClose()
-    }
-  }
-
-  return (
-    <div
-      className="absolute inset-0 z-50 flex flex-col"
-      style={{ background: 'hsl(220 20% 8% / 0.85)' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div className="glass-inset rounded-b-2xl flex flex-col overflow-hidden"
-        style={{ backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)' }}
-      >
-        {/* Search input */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5">
-          <Search className="w-4 h-4 text-muted-foreground shrink-0" />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search assignments…"
-            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 outline-none"
-          />
-          <kbd className="text-[9px] text-muted-foreground/50 border border-white/10 rounded px-1 py-0.5">esc</kbd>
-        </div>
-
-        {/* Results */}
-        <div className="flex flex-col max-h-72 overflow-y-auto">
-          {results.length === 0 ? (
-            <div className="text-xs text-muted-foreground text-center py-6">No results</div>
-          ) : results.map((a, i) => (
-            <button
-              key={a.id}
-              onClick={() => { if (a.canvasUrl) window.ipcRenderer.send('open-external', a.canvasUrl); onClose() }}
-              className="flex items-center gap-3 px-4 py-2.5 text-left transition-colors"
-              style={{ background: i === selectedIndex ? 'hsl(212 90% 60% / 0.12)' : 'transparent' }}
-            >
-              <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: getCourseColor(a.courseName) }} />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate text-foreground">{a.title}</div>
-                <div className="text-[10px] text-muted-foreground">
-                  {a.courseName}{a.dueAt ? ` · ${format(new Date(a.dueAt), 'MMM d')}` : ''}
-                </div>
-              </div>
-              {a.canvasUrl && <ExternalLinkIcon />}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function ExternalLinkIcon() {
   return (
@@ -981,7 +893,10 @@ export default function Panel() {
   const [snoozeState, setSnoozeState]       = useState<Record<string, string>>({})
   const [showSnoozedPanel, setShowSnoozedPanel] = useState(false)
   const [contextMenu, setContextMenu]       = useState<{ assignmentId: string; x: number; y: number } | null>(null)
-  const [showPalette, setShowPalette]       = useState(false)
+  const [showSearch, setShowSearch]         = useState(false)
+  const [searchQuery, setSearchQuery]       = useState('')
+  const [searchSelectedIdx, setSearchSelectedIdx] = useState(0)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   // ── Initial load ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1013,7 +928,8 @@ export default function Panel() {
       setTab('assignments')
       setSelectedCourse(null)
       setShowSettings(false)
-      setShowPalette(false)
+      setShowSearch(false)
+      setSearchQuery('')
       setContextMenu(null)
       window.ipcRenderer.invoke('assignments:get').then((d: unknown) => setAssignments(d as Assignment[]))
       window.ipcRenderer.invoke('sync:status:get').then((s: unknown) => setSyncState(s as SyncState))
@@ -1043,18 +959,33 @@ export default function Panel() {
     }
   }, [tab])
 
+  // ── Search helpers ───────────────────────────────────────────────────────
+  function openSearch() {
+    setShowSearch(true)
+    setSearchQuery('')
+    setSearchSelectedIdx(0)
+    window.ipcRenderer.send('search:active', true)
+  }
+
+  function closeSearch() {
+    setShowSearch(false)
+    setSearchQuery('')
+    setSearchSelectedIdx(0)
+    window.ipcRenderer.send('search:active', false)
+  }
+
   // ── Keyboard shortcuts ───────────────────────────────────────────────────
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      // Cmd+K — toggle command palette
+      // Cmd+K — toggle search bar
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
-        setShowPalette(v => !v)
+        showSearch ? closeSearch() : openSearch()
         return
       }
-      // Escape — close palette, context menu, or panel
+      // Escape — close search, context menu, or panel
       if (e.key === 'Escape') {
-        if (showPalette) { setShowPalette(false); return }
+        if (showSearch) { closeSearch(); return }
         if (contextMenu) { setContextMenu(null); return }
         window.ipcRenderer.send('panel:hide')
         return
@@ -1075,7 +1006,7 @@ export default function Panel() {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [showPalette, contextMenu, showSettings, tab])
+  }, [showSearch, contextMenu, showSettings, tab])
 
   // ── Actions ──────────────────────────────────────────────────────────────
   const triggerSync = useCallback(() => window.ipcRenderer.send('sync:trigger'), [])
@@ -1136,6 +1067,24 @@ export default function Panel() {
   // ── Derived data ─────────────────────────────────────────────────────────
   const personalAssignments = useMemo(() => personalTasks.map(personalToAssignment), [personalTasks])
   const hiddenCourseIds = useMemo(() => new Set(courses.filter(c => c.hidden).map(c => c.id)), [courses])
+
+  // ── Search index ─────────────────────────────────────────────────────────
+  const searchableAssignments = useMemo(() =>
+    [...assignments, ...personalAssignments].map(a => ({
+      ...a,
+      dueDateString: a.dueAt ? format(new Date(a.dueAt), 'MMM d yyyy EEEE') : 'no due date',
+    })), [assignments, personalAssignments])
+
+  const searchFuse = useMemo(() => new Fuse(searchableAssignments, {
+    keys: ['title', 'courseName', 'dueDateString'],
+    threshold: 0.3,
+    includeScore: true,
+  }), [searchableAssignments])
+
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return []
+    return searchFuse.search(searchQuery).slice(0, 8).map(r => r.item)
+  }, [searchQuery, searchFuse])
 
   const visibleAssignments = useMemo(() => {
     const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000
@@ -1234,18 +1183,76 @@ export default function Panel() {
     >
       <div className="glass relative w-full h-full flex flex-col overflow-hidden">
 
-        {/* ── Command palette overlay ── */}
+        {/* ── Search blur backdrop ── */}
         <AnimatePresence>
-          {showPalette && (
+          {showSearch && (
             <motion.div
-              key="palette"
+              key="search-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.12 }}
-              className="absolute inset-0 z-50"
+              transition={{ duration: 0.15 }}
+              onClick={closeSearch}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                top: '64px',
+                backdropFilter: 'blur(8px)',
+                WebkitBackdropFilter: 'blur(8px)',
+                background: 'rgba(0,0,0,0.25)',
+                zIndex: 10,
+              }}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* ── Search results ── */}
+        <AnimatePresence>
+          {showSearch && searchResults.length > 0 && (
+            <motion.div
+              key="search-results"
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.15 }}
+              style={{
+                position: 'absolute',
+                top: '72px',
+                left: '12px',
+                right: '12px',
+                zIndex: 11,
+                maxHeight: '300px',
+                overflowY: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+              }}
             >
-              <CommandPalette assignments={[...assignments, ...personalAssignments]} onClose={() => setShowPalette(false)} />
+              {searchResults.map((a, i) => (
+                <button
+                  key={a.id}
+                  onClick={() => { if (a.canvasUrl) window.ipcRenderer.send('open-external', a.canvasUrl); closeSearch() }}
+                  onMouseEnter={() => setSearchSelectedIdx(i)}
+                  className="flex items-center gap-3 text-left w-full"
+                  style={{
+                    background: 'rgba(30, 38, 68, 0.95)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: '12px',
+                    padding: '10px 12px',
+                    cursor: 'pointer',
+                    marginBottom: '6px',
+                  }}
+                >
+                  <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: getCourseColor(a.courseName) }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate" style={{ color: 'rgba(255,255,255,0.9)' }}>{a.title}</div>
+                    <div className="text-[10px] truncate" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                      {a.courseName}{a.dueAt ? ` · ${format(new Date(a.dueAt), 'MMM d')}` : ''}
+                    </div>
+                  </div>
+                  {a.canvasUrl && <ExternalLinkIcon />}
+                </button>
+              ))}
             </motion.div>
           )}
         </AnimatePresence>
@@ -1265,7 +1272,7 @@ export default function Panel() {
         )}
 
         {/* ── Header ── */}
-        <header className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-white/5 shrink-0">
+        <header className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-white/5 shrink-0" style={{ position: 'relative', zIndex: 30 }}>
           {showSettings ? (
             <div className="flex items-center gap-2 w-full">
               <button onClick={() => setShowSettings(false)} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors">
@@ -1274,45 +1281,99 @@ export default function Panel() {
               <h2 className="text-base font-semibold">Settings</h2>
             </div>
           ) : (
-            <>
-              <div>
-                <h1 className="text-lg font-semibold text-gradient">Canvas Companion</h1>
-                <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
-                  <span className="inline-flex items-center gap-1">
-                    <BookOpen className="w-3 h-3" /> {courseCount} courses
-                  </span>
-                  <span className="opacity-30">·</span>
-                  <span className="inline-flex items-center gap-1">
-                    <Inbox className="w-3 h-3" /> {upcomingCount} upcoming
-                  </span>
-                  {showTimeEstimates && todayLoad !== null && (
-                    <>
-                      <span className="opacity-30">·</span>
-                      <span className="inline-flex items-center gap-1" style={{ color: 'hsl(35 80% 65%)' }}>
-                        <Clock className="w-3 h-3" /> ~{formatLoad(todayLoad)}
-                      </span>
-                    </>
-                  )}
-                </p>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setShowPalette(true)}
-                  className="p-2 rounded-lg hover:bg-white/5 transition-colors"
-                  title="Search assignments (⌘K)"
+            <AnimatePresence mode="wait" initial={false}>
+              {showSearch ? (
+                <motion.div
+                  key="search"
+                  initial={{ width: '40px', opacity: 0 }}
+                  animate={{ width: '100%', opacity: 1 }}
+                  exit={{ width: '40px', opacity: 0 }}
+                  transition={{ duration: 0.2, ease: 'easeInOut' }}
+                  style={{
+                    transformOrigin: 'right center',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '12px',
+                    padding: '6px 12px',
+                    background: 'transparent',
+                    backdropFilter: 'none',
+                    WebkitBackdropFilter: 'none',
+                    boxShadow: 'none',
+                    marginLeft: 'auto',
+                  }}
                 >
-                  <Search className="w-4 h-4" />
-                </button>
-                <button onClick={triggerSync} disabled={loading}
-                  className="p-2 rounded-lg hover:bg-white/5 transition-colors disabled:opacity-40" title="Refresh">
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                </button>
-                <button onClick={() => setShowSettings(true)}
-                  className="p-2 rounded-lg hover:bg-white/5 transition-colors" title="Settings">
-                  <SettingsIcon className="w-4 h-4" />
-                </button>
-              </div>
-            </>
+                  <Search className="w-4 h-4 text-white/50 shrink-0" />
+                  <input
+                    ref={searchInputRef}
+                    autoFocus
+                    value={searchQuery}
+                    onChange={e => { setSearchQuery(e.target.value); setSearchSelectedIdx(0) }}
+                    onKeyDown={e => {
+                      if (e.key === 'Escape') { e.stopPropagation(); closeSearch(); return }
+                      if (e.key === 'ArrowDown') { e.preventDefault(); setSearchSelectedIdx(i => Math.min(i + 1, searchResults.length - 1)); return }
+                      if (e.key === 'ArrowUp') { e.preventDefault(); setSearchSelectedIdx(i => Math.max(i - 1, 0)); return }
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        const item = searchResults[searchSelectedIdx]
+                        if (item?.canvasUrl) window.ipcRenderer.send('open-external', item.canvasUrl)
+                        closeSearch()
+                      }
+                    }}
+                    placeholder="Search assignments…"
+                    style={{ background: 'transparent', border: 'none', outline: 'none', color: 'white', flex: 1, fontSize: '14px' }}
+                  />
+                  <button onClick={closeSearch}>
+                    <X className="w-4 h-4 text-white/50" />
+                  </button>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="header"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flex: 1 }}
+                >
+                  <div>
+                    <h1 className="text-lg font-semibold text-gradient">Canvas Companion</h1>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1">
+                        <BookOpen className="w-3 h-3" /> {courseCount} courses
+                      </span>
+                      <span className="opacity-30">·</span>
+                      <span className="inline-flex items-center gap-1">
+                        <Inbox className="w-3 h-3" /> {upcomingCount} upcoming
+                      </span>
+                      {showTimeEstimates && todayLoad !== null && (
+                        <>
+                          <span className="opacity-30">·</span>
+                          <span className="inline-flex items-center gap-1" style={{ color: 'hsl(35 80% 65%)' }}>
+                            <Clock className="w-3 h-3" /> ~{formatLoad(todayLoad)}
+                          </span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={openSearch} className="p-2 rounded-lg hover:bg-white/5 transition-colors" title="Search (⌘K)">
+                      <Search className="w-4 h-4" />
+                    </button>
+                    <button onClick={triggerSync} disabled={loading}
+                      className="p-2 rounded-lg hover:bg-white/5 transition-colors disabled:opacity-40" title="Refresh">
+                      <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                    </button>
+                    <button onClick={() => setShowSettings(true)}
+                      className="p-2 rounded-lg hover:bg-white/5 transition-colors" title="Settings">
+                      <SettingsIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           )}
         </header>
 
