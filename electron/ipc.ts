@@ -112,7 +112,10 @@ async function runSync(win: BrowserWindow, callbacks: SetupIPCCallbacks): Promis
 }
 
 function startSyncTimer(win: BrowserWindow, callbacks: SetupIPCCallbacks): void {
-  if (syncTimer) clearInterval(syncTimer)
+  if (syncTimer) {
+    clearInterval(syncTimer)
+    syncTimer = null
+  }
   const intervalMs = getSettings().syncIntervalMinutes * 60_000
   syncTimer = setInterval(() => runSync(win, callbacks), intervalMs)
 }
@@ -164,18 +167,23 @@ export function setupIPC(
   }
 
   // ── Assignments & sync ────────────────────────────────────────────────────
+  ipcMain.removeHandler('assignments:get')
   ipcMain.handle('assignments:get', () => assignments)
+  ipcMain.removeHandler('sync:status:get')
   ipcMain.handle('sync:status:get', () => syncState)
   ipcMain.on('sync:trigger', () => runSync(win, callbacks))
 
+  ipcMain.removeHandler('sync:run-and-wait')
   ipcMain.handle('sync:run-and-wait', async () => {
     await runSync(win, callbacks)
     return { count: assignments.length, error: syncState.error }
   })
 
   // ── Settings ──────────────────────────────────────────────────────────────
+  ipcMain.removeHandler('settings:get')
   ipcMain.handle('settings:get', () => getSettings())
 
+  ipcMain.removeHandler('settings:set')
   ipcMain.handle('settings:set', async (_event, patch: Partial<Settings>) => {
     const current = getSettings()
     const updated: Settings = { ...current, ...patch }
@@ -201,21 +209,28 @@ export function setupIPC(
   })
 
   // ── Token management ──────────────────────────────────────────────────────
+  ipcMain.removeHandler('token:save')
   ipcMain.handle('token:save', (_event, token: string) => { saveToken(token); return true })
+  ipcMain.removeHandler('token:check')
   ipcMain.handle('token:check', () => hasToken())
+  ipcMain.removeHandler('token:delete')
   ipcMain.handle('token:delete', () => { deleteToken(); return true })
+  ipcMain.removeHandler('token:validate')
   ipcMain.handle('token:validate', (_event, baseUrl: string, token: string) =>
     validateToken(baseUrl, token),
   )
 
   // ── Session cookie ────────────────────────────────────────────────────────
+  ipcMain.removeHandler('cookie:save')
   ipcMain.handle('cookie:save', async (_event, cookie: string) => {
     const current = getSettings()
     store.set('settings', { ...current, canvasSessionCookie: cookie })
     await runSync(win, callbacks)
     return true
   })
+  ipcMain.removeHandler('cookie:check')
   ipcMain.handle('cookie:check', () => !!getSettings().canvasSessionCookie)
+  ipcMain.removeHandler('cookie:clear')
   ipcMain.handle('cookie:clear', async () => {
     const current = getSettings()
     store.set('settings', { ...current, canvasSessionCookie: '' })
@@ -224,14 +239,18 @@ export function setupIPC(
   })
 
   // ── Courses ───────────────────────────────────────────────────────────────
+  ipcMain.removeHandler('courses:get')
   ipcMain.handle('courses:get', () => store.get('courses') as Course[])
+  ipcMain.removeHandler('courses:save')
   ipcMain.handle('courses:save', (_event, courses: Course[]) => {
     store.set('courses', courses)
     return courses
   })
 
   // ── Completed IDs ─────────────────────────────────────────────────────────
+  ipcMain.removeHandler('completed:get')
   ipcMain.handle('completed:get', () => store.get('completedIds') as string[])
+  ipcMain.removeHandler('completed:toggle')
   ipcMain.handle('completed:toggle', (_event, id: string) => {
     const ids = store.get('completedIds') as string[]
     const updated = ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]
@@ -240,14 +259,18 @@ export function setupIPC(
   })
 
   // ── Personal tasks ────────────────────────────────────────────────────────
+  ipcMain.removeHandler('tasks:get')
   ipcMain.handle('tasks:get', () => store.get('personalTasks') as PersonalTask[])
+  ipcMain.removeHandler('tasks:save')
   ipcMain.handle('tasks:save', (_event, tasks: PersonalTask[]) => {
     store.set('personalTasks', tasks)
     return tasks
   })
 
   // ── CSE site URLs ─────────────────────────────────────────────────────────
+  ipcMain.removeHandler('cse-sites:get')
   ipcMain.handle('cse-sites:get', () => store.get('cseSiteUrls') as CseSiteEntry[])
+  ipcMain.removeHandler('cse-sites:save')
   ipcMain.handle('cse-sites:save', async (_event, entries: CseSiteEntry[]) => {
     store.set('cseSiteUrls', entries)
     await runSync(win, callbacks)
@@ -255,7 +278,9 @@ export function setupIPC(
   })
 
   // ── Time estimates ────────────────────────────────────────────────────────
+  ipcMain.removeHandler('estimates:get')
   ipcMain.handle('estimates:get', () => store.get('estimates') as Record<string, number>)
+  ipcMain.removeHandler('estimates:set')
   ipcMain.handle('estimates:set', (_event, id: string, minutes: number | null) => {
     const current = store.get('estimates') as Record<string, number>
     if (minutes === null) {
@@ -269,19 +294,23 @@ export function setupIPC(
   })
 
   // ── Snooze ────────────────────────────────────────────────────────────────
+  ipcMain.removeHandler('snooze:get')
   ipcMain.handle('snooze:get', () => store.get('snoozeState') as Record<string, string>)
+  ipcMain.removeHandler('snooze:set')
   ipcMain.handle('snooze:set', (_event, id: string, until: string) => {
     const current = store.get('snoozeState') as Record<string, string>
     const updated = { ...current, [id]: until }
     store.set('snoozeState', updated)
     return updated
   })
+  ipcMain.removeHandler('snooze:clear')
   ipcMain.handle('snooze:clear', (_event, id: string) => {
     const current = store.get('snoozeState') as Record<string, string>
     const { [id]: _removed, ...rest } = current
     store.set('snoozeState', rest)
     return rest
   })
+  ipcMain.removeHandler('snooze:clear-next-sync')
   ipcMain.handle('snooze:clear-next-sync', () => {
     const current = store.get('snoozeState') as Record<string, string>
     const cleaned = Object.fromEntries(Object.entries(current).filter(([, v]) => v !== 'next-sync'))
@@ -290,12 +319,15 @@ export function setupIPC(
   })
 
   // ── Notifications ─────────────────────────────────────────────────────────
+  ipcMain.removeHandler('notifications:request')
   ipcMain.handle('notifications:request', () => { requestNotificationPermission(); return true })
 
   // ── App paths ─────────────────────────────────────────────────────────────
+  ipcMain.removeHandler('app:resources-path')
   ipcMain.handle('app:resources-path', () => ({ resourcesPath: process.resourcesPath, isDev: !!process.env.VITE_DEV_SERVER_URL }))
 
   // ── Onboarding ────────────────────────────────────────────────────────────
+  ipcMain.removeHandler('onboarding:complete')
   ipcMain.handle('onboarding:complete', async () => {
     const current = getSettings()
     store.set('settings', { ...current, onboardingComplete: true })
@@ -306,6 +338,7 @@ export function setupIPC(
     return true
   })
 
+  ipcMain.removeHandler('onboarding:reopen')
   ipcMain.handle('onboarding:reopen', async () => {
     const current = getSettings()
     store.set('settings', { ...current, onboardingComplete: false })

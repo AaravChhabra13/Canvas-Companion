@@ -31,7 +31,6 @@ let tray: Tray | null = null
 let panel: BrowserWindow | null = null
 let onboardingWin: BrowserWindow | null = null
 let lastBlurTime = 0
-let lastClickTime = 0
 let panelBlocked = false
 
 // ── Tray icon ─────────────────────────────────────────────────────────────────
@@ -78,9 +77,10 @@ function createPanel(): void {
   }
 
   panel.on('blur', () => {
-    if (Date.now() - lastClickTime < 350) return
-    lastBlurTime = Date.now()
-    panel?.hide()
+    setTimeout(() => {
+      lastBlurTime = Date.now()
+      panel?.hide()
+    }, 150)
   })
 
   panel.webContents.on('before-input-event', (_ev, input) => {
@@ -189,7 +189,7 @@ app.whenReady().then(() => {
     { label: 'Quit Canvas Companion', click: () => app.quit() },
   ])
 
-  tray.on('click', () => { lastClickTime = Date.now(); togglePanel() })
+  tray.on('click', () => togglePanel())
   tray.on('right-click', () => {
     tray!.popUpContextMenu(contextMenu)
   })
