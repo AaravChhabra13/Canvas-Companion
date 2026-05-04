@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   RefreshCw, Settings as SettingsIcon, BookOpen, Inbox,
-  CheckCheck, ChevronRight, ChevronLeft, ArrowLeft, Save, EyeOff, Bell, Plus, Plug,
+  CheckCheck, ChevronRight, ChevronLeft, ArrowLeft, EyeOff, Bell, Plus, Plug,
   Calendar as CalendarIcon, Clock, Search, BellOff,
 } from 'lucide-react'
 import Fuse from 'fuse.js'
@@ -485,10 +485,9 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: (v: boolean
 }
 
 function SettingsPanel({
-  settings, courses, hideOldOverdue, onToggleHideOldOverdue, onSave,
+  settings, hideOldOverdue, onToggleHideOldOverdue, onSave,
 }: {
   settings: Settings
-  courses: Course[]
   hideOldOverdue: boolean
   onToggleHideOldOverdue: (v: boolean) => void
   onSave: (s: Partial<Settings>, c?: Course[]) => Promise<void>
@@ -503,19 +502,19 @@ function SettingsPanel({
   const [lookaheadDays, setLookaheadDays] = useState(settings.lookaheadDays ?? 14)
   const [leadTimes, setLeadTimes] = useState(new Set(settings.notificationLeadTimes))
   const [notifsEnabled, setNotifsEnabled] = useState(settings.notificationLeadTimes.length > 0)
-  const [localCourses, setLocalCourses] = useState<Course[]>(courses)
   const [token, setToken] = useState('')
   const [showToken, setShowToken] = useState(false)
   const [tokenStatus, setTokenStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle')
   const [tokenError, setTokenError] = useState('')
   const [hasExistingToken, setHasExistingToken] = useState(false)
-  const [saving, setSaving] = useState(false)
   const [cseSiteUrls, setCseSiteUrls] = useState<CseSiteEntry[]>([])
   const [newCseUrl, setNewCseUrl] = useState('')
   const [newCseCourseName, setNewCseCourseName] = useState('')
   const [cseSaving, setCseSaving] = useState(false)
   const [showTimeEstimatesSetting, setShowTimeEstimatesSetting] = useState(settings.showTimeEstimates ?? false)
   const [localViewMode, setLocalViewMode] = useState<'compact' | 'expanded'>(settings.viewMode ?? 'expanded')
+  const [savedToast, setSavedToast] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const digest = settings.dailyDigest ?? { enabled: false, hour: 8, minute: 0 }
   const [digestEnabled, setDigestEnabled] = useState(digest.enabled)
@@ -532,7 +531,26 @@ function SettingsPanel({
     window.ipcRenderer.invoke('cookie:check').then((v: unknown) => setHasCookie(v as boolean))
     window.ipcRenderer.invoke('cse-sites:get').then((v: unknown) => setCseSiteUrls(v as CseSiteEntry[]))
   }, [])
-  useEffect(() => { setLocalCourses(courses) }, [courses])
+
+  function showSaved() {
+    setSavedToast(true)
+    setTimeout(() => setSavedToast(false), 1500)
+  }
+
+  async function autoSave(patch: Partial<Settings>, triggerSync = false) {
+    await onSave(patch)
+    if (triggerSync) window.ipcRenderer.send('sync:trigger')
+    showSaved()
+  }
+
+  function debouncedSave(patch: Partial<Settings>, triggerSync = false) {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => autoSave(patch, triggerSync), 500)
+  }
+
+  function getActualHour(hour: number, ampm: 'AM' | 'PM') {
+    return ampm === 'AM' ? (hour === 12 ? 0 : hour) : (hour === 12 ? 12 : hour + 12)
+  }
 
   async function handleAddCseSite() {
     const url = newCseUrl.trim()
@@ -545,17 +563,22 @@ function SettingsPanel({
     setNewCseUrl('')
     setNewCseCourseName('')
     setCseSaving(false)
+    showSaved()
   }
 
   async function handleRemoveCseSite(index: number) {
     const updated = cseSiteUrls.filter((_, i) => i !== index)
     const saved = await window.ipcRenderer.invoke('cse-sites:save', updated) as CseSiteEntry[]
     setCseSiteUrls(saved)
+    showSaved()
   }
 
-  const toggleLead = (v: number) => setLeadTimes(prev => {
-    const next = new Set(prev); next.has(v) ? next.delete(v) : next.add(v); return next
-  })
+  const toggleLead = (v: number) => {
+    const next = new Set(leadTimes)
+    next.has(v) ? next.delete(v) : next.add(v)
+    setLeadTimes(next)
+    if (notifsEnabled) autoSave({ notificationLeadTimes: [...next] })
+  }
 
   async function handleTestToken() {
     setTokenStatus('testing'); setTokenError('')
@@ -563,6 +586,8 @@ function SettingsPanel({
     if (valid) {
       await window.ipcRenderer.invoke('token:save', token.trim())
       setTokenStatus('ok'); setHasExistingToken(true); setToken('')
+      window.ipcRenderer.send('sync:trigger')
+      showSaved()
     } else {
       setTokenStatus('error'); setTokenError('Invalid token or wrong Canvas URL.')
     }
@@ -571,6 +596,7 @@ function SettingsPanel({
   async function handleRemoveToken() {
     await window.ipcRenderer.invoke('token:delete')
     setHasExistingToken(false); setTokenStatus('idle')
+    showSaved()
   }
 
   async function handleSaveCookie() {
@@ -580,32 +606,14 @@ function SettingsPanel({
     setHasCookie(true)
     setCookieInput('')
     setCookieSaving(false)
+    window.ipcRenderer.send('sync:trigger')
+    showSaved()
   }
 
   async function handleClearCookie() {
     await window.ipcRenderer.invoke('cookie:clear')
     setHasCookie(false)
-  }
-
-  async function handleSave() {
-    setSaving(true)
-    const actualHour = digestAmPm === 'AM'
-      ? (digestHour === 12 ? 0 : digestHour)
-      : (digestHour === 12 ? 12 : digestHour + 12)
-    await onSave(
-      {
-        canvasBaseUrl: baseUrl.trim() || 'https://canvas.uw.edu',
-        canvasIcalUrl: icalUrl.trim(),
-        syncIntervalMinutes: syncInterval,
-        lookaheadDays,
-        notificationLeadTimes: notifsEnabled ? [...leadTimes] : [],
-        dailyDigest: { enabled: digestEnabled, hour: actualHour, minute: 0 },
-        showTimeEstimates: showTimeEstimatesSetting,
-        viewMode: localViewMode,
-      },
-      localCourses,
-    )
-    setSaving(false)
+    showSaved()
   }
 
   const inputCls = 'w-full glass-inset rounded-xl px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 outline-none focus:ring-1 focus:ring-primary/50'
@@ -616,11 +624,35 @@ function SettingsPanel({
     <div className="flex flex-col">
       <div className="p-5 flex flex-col gap-5">
 
+        {/* Saved toast */}
+        <AnimatePresence>
+          {savedToast && (
+            <motion.div
+              key="saved-toast"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.15 }}
+              className="flex items-center justify-center gap-1.5 py-1.5 rounded-xl text-[11px] font-medium"
+              style={{ background: 'hsl(var(--success) / 0.15)', color: 'hsl(var(--success))' }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3 h-3">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Saved
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* 1. Canvas URL */}
         <div className="flex flex-col gap-2">
           <label className={sectionLbl}>Canvas URL</label>
-          <input type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
-            placeholder="https://canvas.uw.edu" spellCheck={false} className={inputCls} />
+          <input
+            type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
+            onBlur={() => autoSave({ canvasBaseUrl: baseUrl.trim() || 'https://canvas.uw.edu' }, true)}
+            onKeyDown={e => { if (e.key === 'Enter') autoSave({ canvasBaseUrl: baseUrl.trim() || 'https://canvas.uw.edu' }, true) }}
+            placeholder="https://canvas.uw.edu" spellCheck={false} className={inputCls}
+          />
         </div>
 
         {/* 2. UW CSE Course Sites */}
@@ -667,7 +699,11 @@ function SettingsPanel({
               <div className="text-sm font-medium">Compact view</div>
               <div className="text-[11px] text-muted-foreground leading-snug">Show only title and due date, smaller rows</div>
             </div>
-            <Toggle enabled={localViewMode === 'compact'} onToggle={v => setLocalViewMode(v ? 'compact' : 'expanded')} />
+            <Toggle enabled={localViewMode === 'compact'} onToggle={v => {
+              const newMode = v ? 'compact' : 'expanded'
+              setLocalViewMode(newMode)
+              autoSave({ viewMode: newMode })
+            }} />
           </div>
           <div className={rowCls}>
             <div className="flex items-center gap-2 min-w-0">
@@ -677,7 +713,7 @@ function SettingsPanel({
                 <div className="text-[11px] text-muted-foreground leading-snug">Auto-hide assignments overdue by more than 24h</div>
               </div>
             </div>
-            <Toggle enabled={hideOldOverdue} onToggle={onToggleHideOldOverdue} />
+            <Toggle enabled={hideOldOverdue} onToggle={v => { onToggleHideOldOverdue(v); showSaved() }} />
           </div>
           <div className={rowCls}>
             <div className="flex items-center gap-2 min-w-0">
@@ -687,7 +723,10 @@ function SettingsPanel({
                 <div className="text-[11px] text-muted-foreground leading-snug">Track daily workload with time tags on assignments</div>
               </div>
             </div>
-            <Toggle enabled={showTimeEstimatesSetting} onToggle={setShowTimeEstimatesSetting} />
+            <Toggle enabled={showTimeEstimatesSetting} onToggle={v => {
+              setShowTimeEstimatesSetting(v)
+              autoSave({ showTimeEstimates: v })
+            }} />
           </div>
         </div>
 
@@ -699,7 +738,10 @@ function SettingsPanel({
               <Bell className="w-4 h-4 text-muted-foreground shrink-0" />
               <div className="text-sm font-medium">Enable notifications</div>
             </div>
-            <Toggle enabled={notifsEnabled} onToggle={setNotifsEnabled} />
+            <Toggle enabled={notifsEnabled} onToggle={v => {
+              setNotifsEnabled(v)
+              autoSave({ notificationLeadTimes: v ? [...leadTimes] : [] })
+            }} />
           </div>
           {notifsEnabled && (
             <div className="flex flex-col gap-1.5">
@@ -725,16 +767,27 @@ function SettingsPanel({
                   <div className="text-[11px] text-muted-foreground leading-snug">Morning summary of your assignments</div>
                 </div>
               </div>
-              <Toggle enabled={digestEnabled} onToggle={setDigestEnabled} />
+              <Toggle enabled={digestEnabled} onToggle={v => {
+                setDigestEnabled(v)
+                autoSave({ dailyDigest: { enabled: v, hour: getActualHour(digestHour, digestAmPm), minute: 0 } })
+              }} />
             </div>
             {digestEnabled && (
               <div className="flex items-center gap-2 pl-6">
                 <span className="text-xs text-muted-foreground">Send at</span>
-                <select value={digestHour} onChange={e => setDigestHour(Number(e.target.value))}
+                <select value={digestHour} onChange={e => {
+                  const v = Number(e.target.value)
+                  setDigestHour(v)
+                  debouncedSave({ dailyDigest: { enabled: digestEnabled, hour: getActualHour(v, digestAmPm), minute: 0 } })
+                }}
                   className="glass-inset rounded-lg px-2 py-1 text-xs text-foreground outline-none">
                   {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(h => <option key={h} value={h}>{h}:00</option>)}
                 </select>
-                <select value={digestAmPm} onChange={e => setDigestAmPm(e.target.value as 'AM' | 'PM')}
+                <select value={digestAmPm} onChange={e => {
+                  const v = e.target.value as 'AM' | 'PM'
+                  setDigestAmPm(v)
+                  debouncedSave({ dailyDigest: { enabled: digestEnabled, hour: getActualHour(digestHour, v), minute: 0 } })
+                }}
                   className="glass-inset rounded-lg px-2 py-1 text-xs text-foreground outline-none">
                   <option value="AM">AM</option>
                   <option value="PM">PM</option>
@@ -749,16 +802,27 @@ function SettingsPanel({
           <label className={sectionLbl}>Sync</label>
           <div className="flex flex-col gap-1.5">
             <label className="text-[11px] text-muted-foreground">Auto-sync interval</label>
-            <select value={syncInterval} onChange={e => setSyncInterval(Number(e.target.value))} className={`${inputCls} appearance-auto`}>
+            <select value={syncInterval} onChange={e => {
+              const v = Number(e.target.value)
+              setSyncInterval(v)
+              debouncedSave({ syncIntervalMinutes: v })
+            }} className={`${inputCls} appearance-auto`}>
               {[15, 30, 60].map(v => <option key={v} value={v}>{v} minutes</option>)}
             </select>
           </div>
           <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-[11px] text-muted-foreground">Assignment lookahead</label>
-              <span className="text-[11px] text-foreground/60">Show assignments up to {lookaheadDays} days ahead</span>
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-1 flex-nowrap">
+                <label className="text-[11px] text-muted-foreground whitespace-nowrap">Assignment Look Ahead</label>
+                <span className="text-[11px] text-foreground/60 whitespace-nowrap">· {lookaheadDays} days</span>
+              </div>
+              <span className="text-[10px] text-muted-foreground/60">Shows assignments up to {lookaheadDays} days ahead</span>
             </div>
-            <select value={lookaheadDays} onChange={e => setLookaheadDays(Number(e.target.value))} className={`${inputCls} appearance-auto`}>
+            <select value={lookaheadDays} onChange={e => {
+              const v = Number(e.target.value)
+              setLookaheadDays(v)
+              debouncedSave({ lookaheadDays: v })
+            }} className={`${inputCls} appearance-auto`}>
               {[7, 14, 30, 60, 90].map(v => <option key={v} value={v}>{v} days</option>)}
             </select>
           </div>
@@ -768,6 +832,7 @@ function SettingsPanel({
         <div className="flex flex-col gap-2">
           <label className={sectionLbl}>Canvas iCal Feed URL</label>
           <textarea value={icalUrl} onChange={e => setIcalUrl(e.target.value)}
+            onBlur={() => autoSave({ canvasIcalUrl: icalUrl.trim() }, true)}
             placeholder="https://canvas.uw.edu/feeds/calendars/user_….ics"
             rows={3} spellCheck={false} className={`${inputCls} resize-none`} />
           <p className="text-xs text-muted-foreground leading-relaxed">
@@ -834,7 +899,7 @@ function SettingsPanel({
           )}
         </div>
 
-        {/* 9. Danger zone */}
+        {/* 9. Reconnect */}
         <div className="flex flex-col gap-2">
           <button onClick={() => window.ipcRenderer.invoke('onboarding:reopen')}
             className="glass-inset flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors">
@@ -843,17 +908,6 @@ function SettingsPanel({
           </button>
         </div>
 
-        <div style={{ height: '60px' }} />
-      </div>
-
-      {/* Sticky Save & Sync */}
-      <div style={{ position: 'sticky', bottom: 0, padding: '12px 16px' }}>
-        <button onClick={handleSave} disabled={saving}
-          className="w-full rounded-xl py-2.5 px-4 font-medium text-primary-foreground flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50"
-          style={{ background: 'var(--gradient-primary)', boxShadow: 'var(--shadow-glow)' }}>
-          <Save className="w-4 h-4" />
-          {saving ? 'Saving…' : 'Save & Sync'}
-        </button>
       </div>
     </div>
   )
@@ -1285,7 +1339,7 @@ export default function Panel() {
             <motion.div key="settings"
               initial={{ x: 24, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -24, opacity: 0 }}
               transition={{ duration: 0.18, ease: 'easeOut' }} className="flex-1 overflow-y-auto">
-              <SettingsPanel settings={settings} courses={courses} hideOldOverdue={hideOldOverdue}
+              <SettingsPanel settings={settings} hideOldOverdue={hideOldOverdue}
                 onToggleHideOldOverdue={handleToggleHideOldOverdue} onSave={saveSettings} />
             </motion.div>
           ) : (
