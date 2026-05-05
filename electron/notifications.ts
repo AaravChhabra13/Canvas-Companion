@@ -87,6 +87,14 @@ export function scheduleDailyDigest(digest: DailyDigest | undefined): void {
 
   const { hour, minute } = digest
 
+  // If today's digest time has already passed, fire immediately
+  const now = new Date()
+  const todayTarget = new Date()
+  todayTarget.setHours(hour, minute, 0, 0)
+  if (todayTarget.getTime() <= now.getTime()) {
+    fireDailyDigest(digestAssignments)
+  }
+
   function scheduleNext() {
     digestTimer = setTimeout(() => {
       fireDailyDigest(digestAssignments)

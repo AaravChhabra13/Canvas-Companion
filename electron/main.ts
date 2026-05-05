@@ -226,7 +226,7 @@ app.whenReady().then(() => {
     panel.setPosition(x, y)
   })
 
-  const { triggerSync, isOnboardingComplete } = setupIPC(panel!, {
+  const { triggerSync, isOnboardingComplete, onWake } = setupIPC(panel!, {
     showPanel: () => showPanel(),
     closeOnboarding: () => { panelBlocked = false; onboardingWin?.close(); onboardingWin = null },
     openOnboarding: () => openOnboardingWindow(),
@@ -240,6 +240,7 @@ app.whenReady().then(() => {
 
   powerMonitor.on('resume', () => {
     if (isOnboarded()) triggerSync()
+    onWake()
     if (!panelBlocked && !onboardingWin) panel?.webContents.send('panel:shown')
   })
 

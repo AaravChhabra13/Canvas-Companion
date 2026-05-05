@@ -62,7 +62,7 @@ async function runSync(win: BrowserWindow, callbacks: SetupIPCCallbacks): Promis
   const settings = getSettings()
   if (!hasToken() && !settings.canvasSessionCookie && !settings.canvasIcalUrl) return
 
-  const prevLastSync = syncState.lastSyncAt
+  const prevLastSync = syncState.lastSyncAt ?? new Date().toISOString()
 
   syncState = { status: 'syncing', lastSyncAt: syncState.lastSyncAt }
   win.webContents.send('sync:status', syncState)
@@ -123,6 +123,7 @@ function startSyncTimer(win: BrowserWindow, callbacks: SetupIPCCallbacks): void 
 export interface SetupIPCResult {
   triggerSync: () => void
   isOnboardingComplete: boolean
+  onWake: () => void
 }
 
 export function setupIPC(
@@ -335,6 +336,7 @@ export function setupIPC(
     callbacks.showPanel()
     await runSync(win, callbacks)
     startSyncTimer(win, callbacks)
+    scheduleDailyDigest(getSettings().dailyDigest)
     return true
   })
 
@@ -362,5 +364,8 @@ export function setupIPC(
   return {
     triggerSync: () => runSync(win, callbacks),
     isOnboardingComplete,
+    onWake: () => {
+      scheduleDailyDigest(getSettings().dailyDigest)
+    },
   }
 }
