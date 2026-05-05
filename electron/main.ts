@@ -30,8 +30,8 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 let tray: Tray | null = null
 let panel: BrowserWindow | null = null
 let onboardingWin: BrowserWindow | null = null
-let lastBlurTime = 0
 let panelBlocked = false
+let hideOnBlur = false
 let searchActive = false
 
 // ── Tray icon ─────────────────────────────────────────────────────────────────
@@ -78,14 +78,16 @@ function createPanel(): void {
   }
 
   panel.on('blur', () => {
-    setTimeout(() => {
-      lastBlurTime = Date.now()
-      panel?.hide()
-    }, 150)
+    if (!hideOnBlur) return
+    hideOnBlur = false
+    panel?.hide()
   })
 
   panel.webContents.on('before-input-event', (_ev, input) => {
-    if (input.type === 'keyDown' && input.key === 'Escape' && !searchActive) panel?.hide()
+    if (input.type === 'keyDown' && input.key === 'Escape' && !searchActive) {
+      hideOnBlur = true
+      panel?.hide()
+    }
   })
 }
 
@@ -156,16 +158,20 @@ function showPanel(): void {
 
   panel.setAlwaysOnTop(true, 'floating')
   panel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  panel.setFullScreenable(false)
   panel.show()
-  setTimeout(() => panel?.focus(), 50)
+  hideOnBlur = false
+  panel.focus()
   panel.webContents.send('panel:shown')
 }
 
 function togglePanel(): void {
   if (!panel) return
-  if (Date.now() - lastBlurTime < 350) return
-  panel.isVisible() ? panel.hide() : showPanel()
+  if (panel.isVisible()) {
+    hideOnBlur = true
+    panel.hide()
+  } else {
+    showPanel()
+  }
 }
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
