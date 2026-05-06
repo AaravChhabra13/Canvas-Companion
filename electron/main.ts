@@ -77,6 +77,7 @@ function createPanel(): void {
     panel.loadFile(path.join(RENDERER_DIST, 'index.html'))
   }
 
+  panel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   panel.on('blur', () => {
     if (!hideOnBlur) return
     hideOnBlur = false

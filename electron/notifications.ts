@@ -24,7 +24,7 @@ export function checkAndFireNotifications(
 
     for (const leadMinutes of leadTimes) {
       const fireAt = new Date(dueDate.getTime() - leadMinutes * 60_000)
-      const key = `${a.id}:${leadMinutes}`
+      const key = `${a.id}:${leadMinutes}:${new Date().toISOString().slice(0, 13)}`
 
       if (fired.has(key)) continue
       // Only fire if this window (prevSync, now] contains the fire time
@@ -64,6 +64,7 @@ export function requestNotificationPermission(): void {
 // ── Daily digest ──────────────────────────────────────────────────────────────
 
 let digestTimer: ReturnType<typeof setTimeout> | null = null
+let lastDigestDate: string | null = null
 let digestAssignments: Assignment[] = []
 
 export function updateDigestAssignments(assignments: Assignment[]): void {
@@ -107,6 +108,10 @@ export function scheduleDailyDigest(digest: DailyDigest | undefined): void {
 
 function fireDailyDigest(assignments: Assignment[]): void {
   if (!Notification.isSupported()) return
+
+  const todayStr = new Date().toISOString().slice(0, 10)
+  if (lastDigestDate === todayStr) return
+  lastDigestDate = todayStr
 
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
