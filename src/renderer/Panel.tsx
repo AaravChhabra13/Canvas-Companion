@@ -226,7 +226,7 @@ function CalendarView({
     const n = new Date()
     return new Date(n.getFullYear(), n.getMonth(), 1)
   })
-  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [selectedKey, setSelectedKey] = useState<string | null>(() => dateKey(new Date()))
 
   const heatmap = useMemo(() => {
     const map = new Map<string, { count: number; points: number; assignments: Assignment[] }>()
