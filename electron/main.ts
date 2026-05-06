@@ -132,22 +132,6 @@ function createOnboardingWindow(): void {
   onboardingWin.on('closed', () => { onboardingWin = null; panelBlocked = false })
 }
 
-// ── Outside-click guard ───────────────────────────────────────────────────────
-// Electron exposes no global mousedown event without a native module, so we
-// approximate it via a blur listener that reads cursor position at blur time.
-// Registered each time the panel shows; self-removes on first outside click.
-function onPanelBlurOutsideClick(): void {
-  if (!panel) return
-  const cursor = screen.getCursorScreenPoint()
-  const { x, y, width, height } = panel.getBounds()
-  const inside = cursor.x >= x && cursor.x <= x + width &&
-                 cursor.y >= y && cursor.y <= y + height
-  if (!inside) {
-    panel.removeListener('blur', onPanelBlurOutsideClick)
-    panel.hide()
-  }
-}
-
 // ── Panel positioning ─────────────────────────────────────────────────────────
 
 function showPanel(): void {
@@ -177,8 +161,6 @@ function showPanel(): void {
   panel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   panel.show()
   hideOnBlur = false
-  panel.removeListener('blur', onPanelBlurOutsideClick)
-  panel.on('blur', onPanelBlurOutsideClick)
   panel.focus()
   panel.webContents.send('panel:shown')
 }
@@ -186,7 +168,6 @@ function showPanel(): void {
 function togglePanel(): void {
   if (!panel) return
   if (panel.isVisible()) {
-    panel.removeListener('blur', onPanelBlurOutsideClick)
     hideOnBlur = true
     panel.hide()
   } else {
