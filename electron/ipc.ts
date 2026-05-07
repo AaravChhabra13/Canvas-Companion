@@ -27,7 +27,7 @@ const SETTINGS_DEFAULTS: Settings = {
   canvasSessionCookie: '',
   syncIntervalMinutes: 30,
   lookaheadDays: 14,
-  notificationLeadTimes: [1440, 120, 30],  // 24 h, 2 h, 30 min
+  notificationLeadTimes: [1440, 720, 120, 30],  // 24 h, 12 h, 2 h, 30 min
   onboardingComplete: false,
   hideOldOverdue: true,
   dailyDigest: { enabled: false, hour: 8, minute: 0 },
@@ -90,7 +90,8 @@ async function runSync(win: BrowserWindow, callbacks: SetupIPCCallbacks): Promis
     win.webContents.send('sync:status', syncState)
     win.webContents.send('courses:data', store.get('courses'))
 
-    checkAndFireNotifications(assignments, settings.notificationLeadTimes, prevLastSync)
+    const completedIds = new Set(store.get('completedIds') as string[])
+    checkAndFireNotifications(assignments, settings.notificationLeadTimes, prevLastSync, completedIds)
     updateDigestAssignments(assignments)
 
     // Compute badge counts for tray icon

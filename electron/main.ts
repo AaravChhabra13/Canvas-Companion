@@ -157,7 +157,8 @@ function showPanel(): void {
     panel.setPosition(x, y, false)
   }
 
-  panel.setAlwaysOnTop(true, 'floating')
+  panel.setAlwaysOnTop(true, 'pop-up-menu')
+  panel.moveTop()
   panel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   panel.show()
   hideOnBlur = false

@@ -10,6 +10,7 @@ export function checkAndFireNotifications(
   assignments: Assignment[],
   leadTimes: number[],
   lastSyncAt: string | null,
+  completedIds: Set<string> = new Set(),
 ): void {
   if (!Notification.isSupported()) return
 
@@ -19,6 +20,7 @@ export function checkAndFireNotifications(
   for (const a of assignments) {
     if (!a.dueAt) continue
     if (a.submissionState === 'submitted' || a.submissionState === 'graded') continue
+    if (completedIds.has(a.id)) continue
 
     const dueDate = new Date(a.dueAt)
 
@@ -119,9 +121,11 @@ function fireDailyDigest(assignments: Assignment[]): void {
   const tmrwStart  = new Date(todayEnd.getTime() + 1)
   const tmrwEnd    = new Date(tmrwStart.getTime() + 86_400_000 - 1)
 
-  const overdue = assignments.filter(a =>
-    a.isOverdue && a.submissionState !== 'submitted' && a.submissionState !== 'graded'
-  ).length
+  const overdue = assignments.filter(a => {
+    if (!a.dueAt) return false
+    if (a.submissionState === 'submitted' || a.submissionState === 'graded') return false
+    return new Date(a.dueAt) < now
+  }).length
 
   const dueToday = assignments.filter(a => {
     if (!a.dueAt || a.isOverdue) return false

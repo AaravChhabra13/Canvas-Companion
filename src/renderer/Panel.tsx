@@ -659,11 +659,12 @@ function SettingsPanel({
             <div className="flex flex-col gap-1.5">
               {[
                 { label: '24 hours before due', value: 1440 },
+                { label: '12 hours before due', value: 720 },
                 { label: '2 hours before due', value: 120 },
                 { label: '30 minutes before due', value: 30 },
                 { label: '15 minutes before due', value: 15 },
               ].map(({ label, value }) => (
-                <div key={value} className={rowCls}>
+                <div key={value} className="glass-inset rounded-xl px-3 py-1.5 flex items-center justify-between gap-3">
                   <span className="text-sm text-foreground/80">{label}</span>
                   <Toggle enabled={leadTimes.has(value)} onToggle={() => toggleLead(value)} />
                 </div>

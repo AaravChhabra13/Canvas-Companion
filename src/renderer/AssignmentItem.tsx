@@ -46,6 +46,7 @@ export function AssignmentItem({
   compact = false, onSnooze,
 }: Props) {
   const [showPicker, setShowPicker] = useState(false)
+  const [hovered, setHovered] = useState(false)
 
   const due = assignment.dueAt ? new Date(assignment.dueAt) : null
   const overdue = !completed && assignment.isOverdue
@@ -99,12 +100,24 @@ export function AssignmentItem({
         initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: completed ? 0.5 : 1, y: 0 }}
         transition={{ delay: index * 0.02, duration: 0.2 }}
+        whileHover={{ y: -2 }}
         onContextMenu={handleContextMenu}
-        className="rounded-lg px-3 flex items-center gap-2 hover:bg-white/5 transition-colors"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        className="rounded-lg px-3 flex items-center gap-2"
         style={{
           height: 32,
-          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(99, 102, 241, 0.05))',
-          border: '1px solid rgba(255,255,255,0.1)',
+          background: hovered
+            ? 'rgba(255, 255, 255, 0.09)'
+            : 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(99, 102, 241, 0.05))',
+          border: hovered
+            ? '1px solid rgba(255,255,255,0.18)'
+            : '1px solid rgba(255,255,255,0.1)',
+          boxShadow: hovered
+            ? '0 0 0 1px rgba(255,255,255,0.06), 0 4px 12px rgba(0,0,0,0.2)'
+            : 'none',
+          backdropFilter: 'blur(12px)',
+          transition: 'all 0.2s ease',
         }}
       >
         {/* Checkbox */}
@@ -148,11 +161,23 @@ export function AssignmentItem({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: completed ? 0.5 : 1, y: 0 }}
       transition={{ delay: index * 0.02, duration: 0.25 }}
+      whileHover={{ y: -2 }}
       onContextMenu={handleContextMenu}
-      className="rounded-xl p-3 flex items-start gap-3 hover:bg-white/5 transition-colors"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="rounded-xl p-3 flex items-start gap-3"
       style={{
-        background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(99, 102, 241, 0.05))',
-        border: '1px solid rgba(255,255,255,0.1)',
+        background: hovered
+          ? 'rgba(255, 255, 255, 0.09)'
+          : 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(99, 102, 241, 0.05))',
+        border: hovered
+          ? '1px solid rgba(255,255,255,0.18)'
+          : '1px solid rgba(255,255,255,0.1)',
+        boxShadow: hovered
+          ? '0 0 0 1px rgba(255,255,255,0.06), 0 4px 12px rgba(0,0,0,0.2)'
+          : 'none',
+        backdropFilter: 'blur(12px)',
+        transition: 'all 0.2s ease',
       }}
     >
       {/* Checkbox */}
