@@ -68,9 +68,11 @@ export function requestNotificationPermission(): void {
 let digestTimer: ReturnType<typeof setTimeout> | null = null
 let lastDigestDate: string | null = null
 let digestAssignments: Assignment[] = []
+let digestCompletedIds: Set<string> = new Set()
 
-export function updateDigestAssignments(assignments: Assignment[]): void {
+export function updateDigestAssignments(assignments: Assignment[], completedIds: Set<string> = new Set()): void {
   digestAssignments = assignments
+  digestCompletedIds = completedIds
 }
 
 function msUntilNext(hour: number, minute: number): number {
@@ -113,7 +115,6 @@ function fireDailyDigest(assignments: Assignment[]): void {
 
   const todayStr = new Date().toISOString().slice(0, 10)
   if (lastDigestDate === todayStr) return
-  lastDigestDate = todayStr
 
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -121,25 +122,35 @@ function fireDailyDigest(assignments: Assignment[]): void {
   const tmrwStart  = new Date(todayEnd.getTime() + 1)
   const tmrwEnd    = new Date(tmrwStart.getTime() + 86_400_000 - 1)
 
+  const isDone = (a: Assignment): boolean =>
+    a.submissionState === 'submitted' ||
+    a.submissionState === 'graded' ||
+    digestCompletedIds.has(a.id)
+
   const overdue = assignments.filter(a => {
     if (!a.dueAt) return false
-    if (a.submissionState === 'submitted' || a.submissionState === 'graded') return false
+    if (isDone(a)) return false
     return new Date(a.dueAt) < now
   }).length
 
   const dueToday = assignments.filter(a => {
-    if (!a.dueAt || a.isOverdue) return false
+    if (!a.dueAt) return false
+    if (isDone(a)) return false
     const t = new Date(a.dueAt).getTime()
+    if (t < now.getTime()) return false
     return t >= todayStart.getTime() && t <= todayEnd.getTime()
   }).length
 
   const dueTomorrow = assignments.filter(a => {
     if (!a.dueAt) return false
+    if (isDone(a)) return false
     const t = new Date(a.dueAt).getTime()
     return t >= tmrwStart.getTime() && t <= tmrwEnd.getTime()
   }).length
 
   if (overdue + dueToday + dueTomorrow === 0) return
+
+  lastDigestDate = todayStr
 
   const parts: string[] = []
   if (dueToday > 0) parts.push(`${dueToday} due today`)

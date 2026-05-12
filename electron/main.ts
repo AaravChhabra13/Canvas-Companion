@@ -33,6 +33,8 @@ let onboardingWin: BrowserWindow | null = null
 let panelBlocked = false
 let hideOnBlur = false
 let searchActive = false
+let lastShownAt = 0
+const IDLE_RECREATE_THRESHOLD_MS = 30 * 60 * 1000
 
 // ── Tray icon ─────────────────────────────────────────────────────────────────
 
@@ -134,36 +136,67 @@ function createOnboardingWindow(): void {
 
 // ── Panel positioning ─────────────────────────────────────────────────────────
 
+function maybeRecreatePanel(): boolean {
+  if (!panel) {
+    createPanel()
+    return true
+  }
+  const idleMs = Date.now() - lastShownAt
+  console.log(`[panel] showPanel: idleMs=${idleMs}, willRecreate=${lastShownAt > 0 && idleMs > IDLE_RECREATE_THRESHOLD_MS}`)
+  if (lastShownAt > 0 && idleMs > IDLE_RECREATE_THRESHOLD_MS) {
+    try {
+      panel.removeAllListeners()
+      panel.destroy()
+    } catch { /* destroyed already */ }
+    panel = null
+    createPanel()
+    return true
+  }
+  return false
+}
+
 function showPanel(): void {
-  if (!panel || !tray) return
   if (panelBlocked || onboardingWin) return
+  const wasRecreated = maybeRecreatePanel()
+  if (!panel || !tray) return
 
-  const trayBounds = tray.getBounds()
+  const positionAndShow = () => {
+    if (!panel || !tray) return
 
-  if (trayBounds.width === 0) {
-    const { width } = screen.getPrimaryDisplay().workAreaSize
-    panel.setPosition(width - 360, 30)
-  } else {
-    const { width: pw } = panel.getBounds()
-    const display = screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y })
-    const db = display.bounds
+    const trayBounds = tray.getBounds()
 
-    let x = Math.round(trayBounds.x + trayBounds.width / 2 - pw / 2)
-    const y = trayBounds.y + trayBounds.height + 4
+    if (trayBounds.width === 0) {
+      const { width } = screen.getPrimaryDisplay().workAreaSize
+      panel.setPosition(width - 360, 30)
+    } else {
+      const { width: pw } = panel.getBounds()
+      const display = screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y })
+      const db = display.bounds
 
-    if (x + pw > db.x + db.width) x = db.x + db.width - pw
-    if (x < db.x) x = db.x
+      let x = Math.round(trayBounds.x + trayBounds.width / 2 - pw / 2)
+      const y = trayBounds.y + trayBounds.height + 4
 
-    panel.setPosition(x, y, false)
+      if (x + pw > db.x + db.width) x = db.x + db.width - pw
+      if (x < db.x) x = db.x
+
+      panel.setPosition(x, y, false)
+    }
+
+    panel.setAlwaysOnTop(true, 'pop-up-menu')
+    panel.moveTop()
+    panel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    panel.show()
+    hideOnBlur = false
+    panel.focus()
+    panel.webContents.send('panel:shown')
+    lastShownAt = Date.now()
   }
 
-  panel.setAlwaysOnTop(true, 'pop-up-menu')
-  panel.moveTop()
-  panel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  panel.show()
-  hideOnBlur = false
-  panel.focus()
-  panel.webContents.send('panel:shown')
+  if (wasRecreated) {
+    panel.once('ready-to-show', positionAndShow)
+  } else {
+    positionAndShow()
+  }
 }
 
 function togglePanel(): void {
@@ -228,7 +261,7 @@ app.whenReady().then(() => {
     panel.setPosition(x, y)
   })
 
-  const { triggerSync, isOnboardingComplete, onWake } = setupIPC(panel!, {
+  const { triggerSync, isOnboardingComplete, onWake } = setupIPC(() => panel, {
     showPanel: () => showPanel(),
     closeOnboarding: () => { panelBlocked = false; onboardingWin?.close(); onboardingWin = null },
     openOnboarding: () => openOnboardingWindow(),

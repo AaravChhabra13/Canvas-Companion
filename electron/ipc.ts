@@ -58,69 +58,6 @@ export interface SetupIPCCallbacks {
   onBadgeUpdate: (overdue: number, today: number) => void
 }
 
-async function runSync(win: BrowserWindow, callbacks: SetupIPCCallbacks): Promise<void> {
-  const settings = getSettings()
-  if (!hasToken() && !settings.canvasSessionCookie && !settings.canvasIcalUrl) return
-
-  const prevLastSync = syncState.lastSyncAt ?? new Date().toISOString()
-
-  syncState = { status: 'syncing', lastSyncAt: syncState.lastSyncAt }
-  win.webContents.send('sync:status', syncState)
-
-  try {
-    const storedCourses = store.get('courses') as Course[]
-    const cseSiteUrls = store.get('cseSiteUrls') as CseSiteEntry[]
-    const result = await syncAll(
-      settings.canvasBaseUrl,
-      settings.canvasIcalUrl,
-      settings.canvasSessionCookie,
-      settings.lookaheadDays,
-      storedCourses,
-      cseSiteUrls,
-    )
-
-    assignments = result.assignments
-    console.log('[Sync] first 5 assignments canvasUrl check:',
-      assignments.slice(0, 5).map(a => ({ id: a.id, source: a.source, title: a.title.slice(0, 40), canvasUrl: a.canvasUrl }))
-    )
-    if (result.courses.length > 0) store.set('courses', result.courses)
-
-    syncState = { status: 'idle', lastSyncAt: new Date().toISOString() }
-    win.webContents.send('assignments:data', assignments)
-    win.webContents.send('sync:status', syncState)
-    win.webContents.send('courses:data', store.get('courses'))
-
-    const completedIds = new Set(store.get('completedIds') as string[])
-    checkAndFireNotifications(assignments, settings.notificationLeadTimes, prevLastSync, completedIds)
-    updateDigestAssignments(assignments)
-
-    // Compute badge counts for tray icon
-    const now = new Date()
-    const todayEnd = new Date(now)
-    todayEnd.setHours(23, 59, 59, 999)
-    const overdueCount = assignments.filter(a => a.isOverdue).length
-    const todayCount = assignments.filter(a => {
-      if (!a.dueAt || a.isOverdue) return false
-      const d = new Date(a.dueAt)
-      return d >= now && d <= todayEnd
-    }).length
-    callbacks.onBadgeUpdate(overdueCount, todayCount)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    syncState = { status: 'error', lastSyncAt: syncState.lastSyncAt, error: msg }
-    win.webContents.send('sync:status', syncState)
-  }
-}
-
-function startSyncTimer(win: BrowserWindow, callbacks: SetupIPCCallbacks): void {
-  if (syncTimer) {
-    clearInterval(syncTimer)
-    syncTimer = null
-  }
-  const intervalMs = getSettings().syncIntervalMinutes * 60_000
-  syncTimer = setInterval(() => runSync(win, callbacks), intervalMs)
-}
-
 export interface SetupIPCResult {
   triggerSync: () => void
   isOnboardingComplete: boolean
@@ -128,7 +65,7 @@ export interface SetupIPCResult {
 }
 
 export function setupIPC(
-  win: BrowserWindow,
+  getPanel: () => BrowserWindow | null,
   callbacks: SetupIPCCallbacks,
 ): SetupIPCResult {
   // Store is created here (not at module level) so app.getPath() is available
@@ -168,16 +105,79 @@ export function setupIPC(
     }
   }
 
+  async function runSync(callbacks: SetupIPCCallbacks): Promise<void> {
+    const settings = getSettings()
+    if (!hasToken() && !settings.canvasSessionCookie && !settings.canvasIcalUrl) return
+
+    const prevLastSync = syncState.lastSyncAt ?? new Date().toISOString()
+
+    syncState = { status: 'syncing', lastSyncAt: syncState.lastSyncAt }
+    getPanel()?.webContents.send('sync:status', syncState)
+
+    try {
+      const storedCourses = store.get('courses') as Course[]
+      const cseSiteUrls = store.get('cseSiteUrls') as CseSiteEntry[]
+      const result = await syncAll(
+        settings.canvasBaseUrl,
+        settings.canvasIcalUrl,
+        settings.canvasSessionCookie,
+        settings.lookaheadDays,
+        storedCourses,
+        cseSiteUrls,
+      )
+
+      assignments = result.assignments
+      console.log('[Sync] first 5 assignments canvasUrl check:',
+        assignments.slice(0, 5).map(a => ({ id: a.id, source: a.source, title: a.title.slice(0, 40), canvasUrl: a.canvasUrl }))
+      )
+      if (result.courses.length > 0) store.set('courses', result.courses)
+
+      syncState = { status: 'idle', lastSyncAt: new Date().toISOString() }
+      getPanel()?.webContents.send('assignments:data', assignments)
+      getPanel()?.webContents.send('sync:status', syncState)
+      getPanel()?.webContents.send('courses:data', store.get('courses'))
+
+      const completedIds = new Set(store.get('completedIds') as string[])
+      checkAndFireNotifications(assignments, settings.notificationLeadTimes, prevLastSync, completedIds)
+      updateDigestAssignments(assignments, completedIds)
+
+      // Compute badge counts for tray icon
+      const now = new Date()
+      const todayEnd = new Date(now)
+      todayEnd.setHours(23, 59, 59, 999)
+      const overdueCount = assignments.filter(a => a.isOverdue).length
+      const todayCount = assignments.filter(a => {
+        if (!a.dueAt || a.isOverdue) return false
+        const d = new Date(a.dueAt)
+        return d >= now && d <= todayEnd
+      }).length
+      callbacks.onBadgeUpdate(overdueCount, todayCount)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      syncState = { status: 'error', lastSyncAt: syncState.lastSyncAt, error: msg }
+      getPanel()?.webContents.send('sync:status', syncState)
+    }
+  }
+
+  function startSyncTimer(callbacks: SetupIPCCallbacks): void {
+    if (syncTimer) {
+      clearInterval(syncTimer)
+      syncTimer = null
+    }
+    const intervalMs = getSettings().syncIntervalMinutes * 60_000
+    syncTimer = setInterval(() => runSync(callbacks), intervalMs)
+  }
+
   // ── Assignments & sync ────────────────────────────────────────────────────
   ipcMain.removeHandler('assignments:get')
   ipcMain.handle('assignments:get', () => assignments)
   ipcMain.removeHandler('sync:status:get')
   ipcMain.handle('sync:status:get', () => syncState)
-  ipcMain.on('sync:trigger', () => runSync(win, callbacks))
+  ipcMain.on('sync:trigger', () => runSync(callbacks))
 
   ipcMain.removeHandler('sync:run-and-wait')
   ipcMain.handle('sync:run-and-wait', async () => {
-    await runSync(win, callbacks)
+    await runSync(callbacks)
     return { count: assignments.length, error: syncState.error }
   })
 
@@ -190,13 +190,13 @@ export function setupIPC(
     const current = getSettings()
     const updated: Settings = { ...current, ...patch }
     store.set('settings', updated)
-    if (patch.syncIntervalMinutes !== undefined) startSyncTimer(win, callbacks)
+    if (patch.syncIntervalMinutes !== undefined) startSyncTimer(callbacks)
     if (patch.dailyDigest !== undefined) scheduleDailyDigest(updated.dailyDigest)
     const urlChanged =
       (patch.canvasIcalUrl !== undefined && patch.canvasIcalUrl !== current.canvasIcalUrl) ||
       (patch.canvasBaseUrl !== undefined && patch.canvasBaseUrl !== current.canvasBaseUrl) ||
       (patch.canvasSessionCookie !== undefined && patch.canvasSessionCookie !== current.canvasSessionCookie)
-    if (urlChanged) await runSync(win, callbacks)
+    if (urlChanged) await runSync(callbacks)
     return updated
   })
 
@@ -227,7 +227,7 @@ export function setupIPC(
   ipcMain.handle('cookie:save', async (_event, cookie: string) => {
     const current = getSettings()
     store.set('settings', { ...current, canvasSessionCookie: cookie })
-    await runSync(win, callbacks)
+    await runSync(callbacks)
     return true
   })
   ipcMain.removeHandler('cookie:check')
@@ -236,7 +236,7 @@ export function setupIPC(
   ipcMain.handle('cookie:clear', async () => {
     const current = getSettings()
     store.set('settings', { ...current, canvasSessionCookie: '' })
-    await runSync(win, callbacks)
+    await runSync(callbacks)
     return true
   })
 
@@ -275,7 +275,7 @@ export function setupIPC(
   ipcMain.removeHandler('cse-sites:save')
   ipcMain.handle('cse-sites:save', async (_event, entries: CseSiteEntry[]) => {
     store.set('cseSiteUrls', entries)
-    await runSync(win, callbacks)
+    await runSync(callbacks)
     return entries
   })
 
@@ -335,8 +335,8 @@ export function setupIPC(
     store.set('settings', { ...current, onboardingComplete: true })
     callbacks.closeOnboarding()
     callbacks.showPanel()
-    await runSync(win, callbacks)
-    startSyncTimer(win, callbacks)
+    await runSync(callbacks)
+    startSyncTimer(callbacks)
     scheduleDailyDigest(getSettings().dailyDigest)
     return true
   })
@@ -357,16 +357,14 @@ export function setupIPC(
   const isOnboardingComplete = settings.onboardingComplete && hasConfigured
 
   if (isOnboardingComplete) {
-    runSync(win, callbacks)
-    startSyncTimer(win, callbacks)
+    runSync(callbacks)
+    startSyncTimer(callbacks)
     scheduleDailyDigest(settings.dailyDigest)
   }
 
   return {
-    triggerSync: () => runSync(win, callbacks),
+    triggerSync: () => runSync(callbacks),
     isOnboardingComplete,
-    onWake: () => {
-      scheduleDailyDigest(getSettings().dailyDigest)
-    },
+    onWake: () => {},
   }
 }
