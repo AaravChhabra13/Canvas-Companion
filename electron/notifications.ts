@@ -128,9 +128,9 @@ function fireDailyDigest(assignments: Assignment[]): void {
     digestCompletedIds.has(a.id)
 
   const overdue = assignments.filter(a => {
-    if (!a.dueAt) return false
+    if (!a.isOverdue) return false
     if (isDone(a)) return false
-    return new Date(a.dueAt) < now
+    return true
   }).length
 
   const dueToday = assignments.filter(a => {
