@@ -889,7 +889,11 @@ function AddTaskForm({ onAdd, onCancel }: { onAdd: (title: string, dueAt: string
     let h = Number(hour)
     if (ampm === 'AM') h = h === 12 ? 0 : h
     else h = h === 12 ? 12 : h + 12
-    const d = new Date(dueDate)
+    // dueDate is "YYYY-MM-DD" from the picker; parse as local components, not via
+    // new Date(string) which would interpret it as UTC midnight and shift the date
+    // backward in any timezone west of UTC.
+    const [y, mo, dd] = dueDate.split('-').map(Number)
+    const d = new Date(y, mo - 1, dd)
     d.setHours(h, Number(minute), 0, 0)
     return d.toISOString()
   }
