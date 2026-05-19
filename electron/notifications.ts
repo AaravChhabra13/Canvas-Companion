@@ -1,55 +1,101 @@
 import { Notification, shell } from 'electron'
 import type { Assignment, DailyDigest } from '../src/shared/types'
 
-// Tracks which (assignment, leadTime) pairs have already fired this session.
-// This is in-memory only — resets on restart. That's intentional: the window
-// between lastSyncAt and now acts as the durable dedup guard across restarts.
-const fired = new Set<string>()
+// Map of "assignmentId:leadMinutes" → pending setTimeout handle
+const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
-export function checkAndFireNotifications(
+// Keys of (assignment, leadTime) pairs that have already fired, scoped to the
+// current dueAt. Persisted to disk via the setter below so dedup survives restarts.
+// Key format: `${assignmentId}:${leadMinutes}:${dueAtIso}` so re-scheduled assignments
+// (e.g. instructor changes due date) get a fresh slot.
+let firedKeys = new Set<string>()
+let firedKeysPersist: ((keys: Set<string>) => void) | null = null
+
+export function initFiredKeys(initial: Set<string>, persist: (keys: Set<string>) => void): void {
+  firedKeys = initial
+  firedKeysPersist = persist
+}
+
+function markFired(key: string): void {
+  firedKeys.add(key)
+  firedKeysPersist?.(firedKeys)
+}
+
+function clearAllTimers(): void {
+  for (const t of pendingTimers.values()) clearTimeout(t)
+  pendingTimers.clear()
+}
+
+export function rescheduleNotifications(
   assignments: Assignment[],
   leadTimes: number[],
-  lastSyncAt: string | null,
   completedIds: Set<string> = new Set(),
 ): void {
   if (!Notification.isSupported()) return
 
-  const now = new Date()
-  const prevSync = lastSyncAt ? new Date(lastSyncAt) : new Date(0)
+  clearAllTimers()
+
+  const now = Date.now()
 
   for (const a of assignments) {
     if (!a.dueAt) continue
     if (a.submissionState === 'submitted' || a.submissionState === 'graded') continue
     if (completedIds.has(a.id)) continue
 
-    const dueDate = new Date(a.dueAt)
+    const dueMs = new Date(a.dueAt).getTime()
 
     for (const leadMinutes of leadTimes) {
-      const fireAt = new Date(dueDate.getTime() - leadMinutes * 60_000)
-      const key = `${a.id}:${leadMinutes}:${new Date().toISOString().slice(0, 13)}`
+      const fireAtMs = dueMs - leadMinutes * 60_000
+      const key = `${a.id}:${leadMinutes}:${a.dueAt}`
+      if (firedKeys.has(key)) continue
 
-      if (fired.has(key)) continue
-      // Only fire if this window (prevSync, now] contains the fire time
-      if (fireAt <= prevSync || fireAt > now) continue
+      const delayMs = fireAtMs - now
 
-      fired.add(key)
+      const fire = () => {
+        pendingTimers.delete(key)
+        markFired(key)
+        const hours = leadMinutes / 60
+        const timeLabel =
+          leadMinutes % 60 === 0
+            ? `${hours} hour${hours !== 1 ? 's' : ''}`
+            : `${leadMinutes} minutes`
+        const n = new Notification({
+          title: a.courseName,
+          body: `${a.title} — due in ${timeLabel}`,
+          silent: false,
+        })
+        const url = a.canvasUrl
+        if (url) n.on('click', () => shell.openExternal(url))
+        n.show()
+      }
 
-      const hours = leadMinutes / 60
-      const timeLabel =
-        leadMinutes % 60 === 0
-          ? `${hours} hour${hours !== 1 ? 's' : ''}`
-          : `${leadMinutes} minutes`
-
-      const n = new Notification({
-        title: a.courseName,
-        body: `${a.title} — due in ${timeLabel}`,
-        silent: false,
-      })
-      const url = a.canvasUrl
-      if (url) n.on('click', () => shell.openExternal(url))
-      n.show()
+      if (delayMs <= 0) {
+        // Deadline passed (during sleep, or before scheduler ran). Fire immediately.
+        // setImmediate avoids reentrancy with the for-loop.
+        setImmediate(fire)
+      } else {
+        const timer = setTimeout(fire, delayMs)
+        pendingTimers.set(key, timer)
+      }
     }
   }
+}
+
+// Prune fired-keys that are >7 days past their dueAt. Called periodically by ipc.ts
+// to keep the persisted set from growing unbounded across a semester.
+export function pruneFiredKeys(olderThanMs: number = 7 * 24 * 60 * 60_000): void {
+  const cutoff = Date.now() - olderThanMs
+  let changed = false
+  for (const key of firedKeys) {
+    const parts = key.split(':')
+    const dueAtIso = parts[parts.length - 1]
+    const dueMs = new Date(dueAtIso).getTime()
+    if (!isNaN(dueMs) && dueMs < cutoff) {
+      firedKeys.delete(key)
+      changed = true
+    }
+  }
+  if (changed) firedKeysPersist?.(firedKeys)
 }
 
 // Fires a silent test notification — causes macOS to prompt for permission on first run

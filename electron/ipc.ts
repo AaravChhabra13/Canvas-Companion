@@ -3,7 +3,9 @@ import Store from 'electron-store'
 import { syncAll } from './sync'
 import { saveToken, deleteToken, hasToken, validateToken, getToken } from './canvasApi'
 import {
-  checkAndFireNotifications,
+  rescheduleNotifications,
+  initFiredKeys,
+  pruneFiredKeys,
   requestNotificationPermission,
   updateDigestAssignments,
   scheduleDailyDigest,
@@ -18,6 +20,7 @@ interface StoreSchema {
   cseSiteUrls: CseSiteEntry[]
   estimates: Record<string, number>  // assignmentId → minutes
   snoozeState: Record<string, string>  // assignmentId → ISO date string | 'next-sync'
+  notificationsFired: Record<string, true>
   appVersion: string
 }
 
@@ -62,6 +65,7 @@ export interface SetupIPCResult {
   triggerSync: () => void
   isOnboardingComplete: boolean
   onWake: () => void
+  triggerReschedule: () => void
 }
 
 export function setupIPC(
@@ -79,9 +83,19 @@ export function setupIPC(
       cseSiteUrls: [],
       estimates: {},
       snoozeState: {},
+      notificationsFired: {},
       appVersion: '',
     },
   })
+
+  const persistedFired = (store.get('notificationsFired') as Record<string, true> | undefined) ?? {}
+  const firedKeysSet = new Set<string>(Object.keys(persistedFired))
+  initFiredKeys(firedKeysSet, (keys) => {
+    const obj: Record<string, true> = {}
+    for (const k of keys) obj[k] = true
+    store.set('notificationsFired', obj)
+  })
+  pruneFiredKeys()
 
   // ── First-launch / version-mismatch credential wipe ──────────────────────
   // Compares the stored appVersion against the running binary version.
@@ -108,8 +122,6 @@ export function setupIPC(
   async function runSync(callbacks: SetupIPCCallbacks): Promise<void> {
     const settings = getSettings()
     if (!hasToken() && !settings.canvasSessionCookie && !settings.canvasIcalUrl) return
-
-    const prevLastSync = syncState.lastSyncAt ?? new Date().toISOString()
 
     syncState = { status: 'syncing', lastSyncAt: syncState.lastSyncAt }
     getPanel()?.webContents.send('sync:status', syncState)
@@ -138,7 +150,7 @@ export function setupIPC(
       getPanel()?.webContents.send('courses:data', store.get('courses'))
 
       const completedIds = new Set(store.get('completedIds') as string[])
-      checkAndFireNotifications(assignments, settings.notificationLeadTimes, prevLastSync, completedIds)
+      rescheduleNotifications(assignments, settings.notificationLeadTimes, completedIds)
       updateDigestAssignments(assignments, completedIds)
 
       // Compute badge counts for tray icon
@@ -257,6 +269,7 @@ export function setupIPC(
     const ids = store.get('completedIds') as string[]
     const updated = ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]
     store.set('completedIds', updated)
+    rescheduleNotifications(assignments, getSettings().notificationLeadTimes, new Set(updated))
     return updated
   })
 
@@ -266,6 +279,7 @@ export function setupIPC(
   ipcMain.removeHandler('tasks:save')
   ipcMain.handle('tasks:save', (_event, tasks: PersonalTask[]) => {
     store.set('personalTasks', tasks)
+    rescheduleNotifications(assignments, getSettings().notificationLeadTimes, new Set(store.get('completedIds') as string[]))
     return tasks
   })
 
@@ -366,5 +380,10 @@ export function setupIPC(
     triggerSync: () => runSync(callbacks),
     isOnboardingComplete,
     onWake: () => {},
+    triggerReschedule: () => {
+      const settings = getSettings()
+      const completedIds = new Set(store.get('completedIds') as string[])
+      rescheduleNotifications(assignments, settings.notificationLeadTimes, completedIds)
+    },
   }
 }
