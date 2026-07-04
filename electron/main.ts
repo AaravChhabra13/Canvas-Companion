@@ -275,13 +275,16 @@ app.whenReady().then(() => {
     { label: 'Canvas Companion', enabled: false },
     { type: 'separator' },
     { label: 'Open Dashboard', click: () => showPanel() },
-    { label: 'Preferences', click: () => showPanel() },
     { type: 'separator' },
     { label: 'Quit Canvas Companion', click: () => app.quit() },
   ])
 
   tray.on('click', () => togglePanel())
   tray.on('right-click', () => {
+    if (panel?.isVisible()) {
+      destroyBackdrop()
+      panel.hide()
+    }
     tray!.popUpContextMenu(contextMenu)
   })
 
