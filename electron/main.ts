@@ -29,6 +29,7 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 
 let tray: Tray | null = null
 let panel: BrowserWindow | null = null
+let backdrop: BrowserWindow | null = null
 let onboardingWin: BrowserWindow | null = null
 let panelBlocked = false
 let hideOnBlur = false
@@ -89,7 +90,47 @@ function createPanel(): void {
   panel.webContents.on('before-input-event', (_ev, input) => {
     if (input.type === 'keyDown' && input.key === 'Escape' && !searchActive) {
       hideOnBlur = true
+      destroyBackdrop()
       panel?.hide()
+    }
+  })
+  panel.on('hide', () => destroyBackdrop())
+}
+
+function destroyBackdrop(): void {
+  backdrop?.destroy()
+  backdrop = null
+}
+
+function createBackdrop(): void {
+  destroyBackdrop()
+  if (!panel) return
+  const display = screen.getDisplayNearestPoint(panel.getBounds())
+  backdrop = new BrowserWindow({
+    x: display.bounds.x,
+    y: display.bounds.y,
+    width: display.bounds.width,
+    height: display.bounds.height,
+    frame: false,
+    transparent: true,
+    focusable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    resizable: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  backdrop.setAlwaysOnTop(true, 'pop-up-menu', 0)
+  backdrop.setHiddenInMissionControl(true)
+  backdrop.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  backdrop.loadURL('data:text/html,<body style="margin:0;width:100vw;height:100vh;background:rgba(0,0,0,0.01)" onmousedown="location.href=\'backdrop://hide\'"></body>')
+  backdrop.webContents.on('will-navigate', (e, url) => {
+    if (url.startsWith('backdrop://')) {
+      e.preventDefault()
+      panel?.hide()
+      destroyBackdrop()
     }
   })
 }
@@ -107,7 +148,6 @@ function createOnboardingWindow(): void {
     frame: false,
     resizable: false,
     skipTaskbar: false,
-    alwaysOnTop: true,
     backgroundColor: '#0d1117',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -120,18 +160,22 @@ function createOnboardingWindow(): void {
   if (VITE_DEV_SERVER_URL) {
     onboardingWin.loadURL(VITE_DEV_SERVER_URL + '#onboarding')
     onboardingWin.once('ready-to-show', () => {
+      if (process.platform === 'darwin') app.dock.show()
       onboardingWin?.show()
       onboardingWin?.center()
+      onboardingWin?.focus()
     })
   } else {
     onboardingWin.loadFile(path.join(RENDERER_DIST, 'index.html'), { hash: 'onboarding' })
     onboardingWin.once('ready-to-show', () => {
+      if (process.platform === 'darwin') app.dock.show()
       onboardingWin?.show()
       onboardingWin?.center()
+      onboardingWin?.focus()
     })
   }
 
-  onboardingWin.on('closed', () => { onboardingWin = null; panelBlocked = false })
+  onboardingWin.on('closed', () => { onboardingWin = null; panelBlocked = false; if (process.platform === 'darwin') app.dock.hide() })
 }
 
 // ── Panel positioning ─────────────────────────────────────────────────────────
@@ -144,6 +188,7 @@ function maybeRecreatePanel(): boolean {
   const idleMs = Date.now() - lastShownAt
   console.log(`[panel] showPanel: idleMs=${idleMs}, willRecreate=${lastShownAt > 0 && idleMs > IDLE_RECREATE_THRESHOLD_MS}`)
   if (lastShownAt > 0 && idleMs > IDLE_RECREATE_THRESHOLD_MS) {
+    destroyBackdrop()
     try {
       panel.removeAllListeners()
       panel.destroy()
@@ -186,6 +231,9 @@ function showPanel(): void {
     panel.moveTop()
     panel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
     panel.show()
+    createBackdrop()
+    panel.setAlwaysOnTop(true, 'pop-up-menu', 1)
+    panel.moveTop()
     hideOnBlur = false
     panel.focus()
     panel.webContents.send('panel:shown')
@@ -202,6 +250,7 @@ function showPanel(): void {
 function togglePanel(): void {
   if (!panel) return
   if (panel.isVisible()) {
+    destroyBackdrop()
     hideOnBlur = true
     panel.hide()
   } else {
