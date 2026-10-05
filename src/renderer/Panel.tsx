@@ -295,7 +295,7 @@ export default function Panel() {
   const courseGroups = useMemo(() => groupAssignments(courseAssignments), [courseAssignments])
 
   const todayLoad = useMemo(() => {
-    const todayItems = visibleAssignments.filter(a => a.dueAt && isToday(new Date(a.dueAt)) && !a.isOverdue)
+    const todayItems = visibleAssignments.filter(a => a.dueAt && isToday(new Date(a.dueAt)) && !a.isOverdue && a.type !== 'event')
     let total = 0; let hasAny = false
     for (const a of todayItems) {
       const mins = estimates[a.id]

@@ -103,7 +103,7 @@ export function CalendarView({
               className="aspect-square p-1 flex flex-col items-start gap-0.5 text-left transition-colors overflow-hidden"
               style={isSel
                 ? { background: 'hsl(212 90% 60% / 0.25)', borderRadius: '6px', outline: '1px solid hsl(212 90% 60% / 0.5)' }
-                : { background: getDayBackground(badges.length, badges.some(a => a.isOverdue)), borderRadius: '6px', outline: 'none' }
+                : { background: getDayBackground(badges.filter(a => a.type !== 'event').length, badges.some(a => a.isOverdue)), borderRadius: '6px', outline: 'none' }
               }
             >
               {isT ? (

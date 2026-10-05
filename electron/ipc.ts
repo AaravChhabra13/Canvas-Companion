@@ -157,9 +157,9 @@ export function setupIPC(
       const now = new Date()
       const todayEnd = new Date(now)
       todayEnd.setHours(23, 59, 59, 999)
-      const overdueCount = assignments.filter(a => a.isOverdue && !completedIds.has(a.id)).length
+      const overdueCount = assignments.filter(a => a.isOverdue && a.type !== 'event' && !completedIds.has(a.id)).length
       const todayCount = assignments.filter(a => {
-        if (!a.dueAt || a.isOverdue) return false
+        if (!a.dueAt || a.isOverdue || a.type === 'event') return false
         const d = new Date(a.dueAt)
         return d >= now && d <= todayEnd
       }).length

@@ -28,6 +28,18 @@ function formatEstimate(minutes: number): string {
   return `${h % 1 === 0 ? h : h.toFixed(1)}hr`
 }
 
+// Muted tag so calendar events (meetings, office hours) read differently from assignments
+function EventTag() {
+  return (
+    <span
+      className="shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wide text-muted-foreground"
+      style={{ border: '1px solid hsl(var(--border))' }}
+    >
+      Event
+    </span>
+  )
+}
+
 interface Props {
   assignment: Assignment
   index: number
@@ -145,6 +157,7 @@ export function AssignmentItem({
         >
           {assignment.title}
         </div>
+        {assignment.type === 'event' && <EventTag />}
         {/* Due date */}
         {due && (
           <span className="text-[10px] shrink-0" style={{ color: dueColor }}>
@@ -227,6 +240,7 @@ export function AssignmentItem({
                 CSE
               </span>
             )}
+            {assignment.type === 'event' && <EventTag />}
           </div>
           <div
             className={`text-sm font-medium leading-snug truncate ${
@@ -249,7 +263,7 @@ export function AssignmentItem({
             )}
 
             {/* Estimate badge */}
-            {showEstimate && onSetEstimate && (
+            {showEstimate && onSetEstimate && assignment.type !== 'event' && (
               <button
                 onClick={handleEstimateClick}
                 className="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors"

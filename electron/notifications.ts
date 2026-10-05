@@ -39,6 +39,7 @@ export function rescheduleNotifications(
 
   for (const a of assignments) {
     if (!a.dueAt) continue
+    if (a.type === 'event') continue
     if (a.submissionState === 'submitted' || a.submissionState === 'graded') continue
     if (completedIds.has(a.id)) continue
 
@@ -117,7 +118,7 @@ let digestAssignments: Assignment[] = []
 let digestCompletedIds: Set<string> = new Set()
 
 export function updateDigestAssignments(assignments: Assignment[], completedIds: Set<string> = new Set()): void {
-  digestAssignments = assignments
+  digestAssignments = assignments.filter(a => a.type !== 'event')
   digestCompletedIds = completedIds
 }
 
