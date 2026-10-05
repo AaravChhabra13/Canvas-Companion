@@ -48,10 +48,10 @@ export async function syncAll(
       finalCourses = mergeCourses(result.courses, storedCourses)
     } catch (e) {
       console.error('GraphQL sync failed, falling back to iCal:', e instanceof Error ? e.message : e)
-      if (icalUrl) canvasAssignments = await fetchAssignmentsFromIcal(icalUrl)
+      if (icalUrl) canvasAssignments = await fetchAssignmentsFromIcal(icalUrl, lookaheadDays)
     }
   } else if (icalUrl) {
-    canvasAssignments = await fetchAssignmentsFromIcal(icalUrl)
+    canvasAssignments = await fetchAssignmentsFromIcal(icalUrl, lookaheadDays)
   }
 
   if (canvasAssignments.length === 0 && finalCourses.length === 0 && cseSiteUrls.length === 0) {
@@ -82,8 +82,24 @@ function courseColorFromName(name: string): string {
   return COURSE_COLORS[h % COURSE_COLORS.length]
 }
 
-async function fetchAssignmentsFromIcal(icalUrl: string): Promise<Assignment[]> {
-  const response = await axios.get<string>(icalUrl, {
+const DAY_MS = 86_400_000
+// iCal has no submission state, so past assignments are kept (and shown as
+// overdue) only within this window. Older ones are dropped.
+const ICAL_PAST_WINDOW_DAYS = 3
+
+// Canvas copy-feed buttons sometimes hand out webcal:// links; axios needs https://
+export function normalizeIcalUrl(url: string): string {
+  return url.trim().replace(/^webcal:\/\//i, 'https://')
+}
+
+// Canvas UIDs: "event-assignment-12345" for assignments,
+// "event-calendar-event-12345" for calendar events (meetings, office hours)
+export function icalTypeFromUid(uid: string): Assignment['type'] {
+  return /^event-calendar-event-/i.test(uid) ? 'event' : 'assignment'
+}
+
+async function fetchAssignmentsFromIcal(icalUrl: string, lookaheadDays: number): Promise<Assignment[]> {
+  const response = await axios.get<string>(normalizeIcalUrl(icalUrl), {
     timeout: 15_000,
     headers: { 'User-Agent': 'CanvasDashboard/1.0' },
   })
@@ -98,7 +114,9 @@ async function fetchAssignmentsFromIcal(icalUrl: string): Promise<Assignment[]> 
 
   const comp = new ICAL.Component(jcalData)
   const vevents: unknown[] = comp.getAllSubcomponents('vevent')
-  const now = new Date()
+  const nowMs = Date.now()
+  const windowStart = nowMs - ICAL_PAST_WINDOW_DAYS * DAY_MS
+  const windowEnd = nowMs + lookaheadDays * DAY_MS
   const assignments: Assignment[] = []
 
   for (const vevent of vevents) {
@@ -107,10 +125,17 @@ async function fetchAssignmentsFromIcal(icalUrl: string): Promise<Assignment[]> 
       const dtstart = event.startDate
       if (!dtstart) continue
 
-      const dueAt = (dtstart.toJSDate() as Date).toISOString()
+      const dueDate = dtstart.toJSDate() as Date
+      const dueMs = dueDate.getTime()
+      if (dueMs < windowStart || dueMs > windowEnd) continue
+
+      const dueAt = dueDate.toISOString()
       const summary: string = event.summary || 'Untitled'
       const description: string = event.description || ''
       const uid: string = event.uid || `ical-${Date.now()}-${Math.random()}`
+      const type = icalTypeFromUid(uid)
+      // A meeting that already happened is no longer useful
+      if (type === 'event' && dueMs < nowMs) continue
 
       // Canvas iCal SUMMARY contains course name in brackets: "Assignment Title [COURSE CODE]"
       // Extract course name from brackets first, fall back to DESCRIPTION parsing
@@ -145,11 +170,12 @@ async function fetchAssignmentsFromIcal(icalUrl: string): Promise<Assignment[]> 
         courseName,
         courseColor: courseColorFromName(courseName),
         dueAt,
-        type: 'assignment',
+        type,
         submissionState: 'unknown',
         pointsPossible: null,
         canvasUrl,
-        isOverdue: new Date(dueAt) < now,
+        // Only assignments reach here with a past due time, and only within the window
+        isOverdue: dueMs < nowMs,
         source: 'ical',
       })
     } catch {

@@ -157,7 +157,7 @@ export function setupIPC(
       const now = new Date()
       const todayEnd = new Date(now)
       todayEnd.setHours(23, 59, 59, 999)
-      const overdueCount = assignments.filter(a => a.isOverdue).length
+      const overdueCount = assignments.filter(a => a.isOverdue && !completedIds.has(a.id)).length
       const todayCount = assignments.filter(a => {
         if (!a.dueAt || a.isOverdue) return false
         const d = new Date(a.dueAt)
@@ -300,7 +300,8 @@ export function setupIPC(
   ipcMain.handle('estimates:set', (_event, id: string, minutes: number | null) => {
     const current = store.get('estimates') as Record<string, number>
     if (minutes === null) {
-      const { [id]: _removed, ...rest } = current
+      const rest = { ...current }
+      delete rest[id]
       store.set('estimates', rest)
       return rest
     }
@@ -322,7 +323,8 @@ export function setupIPC(
   ipcMain.removeHandler('snooze:clear')
   ipcMain.handle('snooze:clear', (_event, id: string) => {
     const current = store.get('snoozeState') as Record<string, string>
-    const { [id]: _removed, ...rest } = current
+    const rest = { ...current }
+    delete rest[id]
     store.set('snoozeState', rest)
     return rest
   })

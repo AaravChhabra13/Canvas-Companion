@@ -5,7 +5,7 @@ export interface Assignment {
   courseName: string
   courseColor: string
   dueAt: string | null  // ISO 8601, null = no due date
-  type: 'assignment' | 'quiz' | 'discussion' | 'announcement' | 'creative' | 'resubmission'
+  type: 'assignment' | 'quiz' | 'discussion' | 'announcement' | 'creative' | 'resubmission' | 'event'
   submissionState: 'submitted' | 'unsubmitted' | 'graded' | 'unknown'
   pointsPossible: number | null
   canvasUrl: string

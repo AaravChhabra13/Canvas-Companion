@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { EyeOff, Bell, Clock, Plug } from 'lucide-react'
 import { Toggle } from './Toggle'
 import type { Course, CseSiteEntry, Settings } from '../../shared/types'
+import { isValidIcalUrl, ICAL_URL_ERROR } from '../../lib/icalUrl'
 
 export function SettingsPanel({
   settings, hideOldOverdue, onToggleHideOldOverdue, onSave,
@@ -14,6 +15,7 @@ export function SettingsPanel({
 }) {
   const [baseUrl, setBaseUrl] = useState(settings.canvasBaseUrl)
   const [icalUrl, setIcalUrl] = useState(settings.canvasIcalUrl)
+  const [icalError, setIcalError] = useState('')
   const [cookieInput, setCookieInput] = useState('')
   const [showCookie, setShowCookie] = useState(false)
   const [hasCookie, setHasCookie] = useState(false)
@@ -352,10 +354,19 @@ export function SettingsPanel({
         {/* 6. Canvas iCal Feed URL */}
         <div className="flex flex-col gap-2">
           <label className={sectionLbl}>Canvas iCal Feed URL</label>
-          <textarea value={icalUrl} onChange={e => setIcalUrl(e.target.value)}
-            onBlur={() => autoSave({ canvasIcalUrl: icalUrl.trim() }, true)}
+          <textarea value={icalUrl} onChange={e => { setIcalUrl(e.target.value); setIcalError('') }}
+            onBlur={() => {
+              const trimmed = icalUrl.trim()
+              // Empty is allowed, it clears the feed
+              if (trimmed && !isValidIcalUrl(trimmed)) {
+                setIcalError(ICAL_URL_ERROR)
+                return
+              }
+              autoSave({ canvasIcalUrl: trimmed }, true)
+            }}
             placeholder="https://canvas.uw.edu/feeds/calendars/user_….ics"
             rows={3} spellCheck={false} className={`${inputCls} resize-none`} />
+          {icalError && <p className="text-xs" style={{ color: 'hsl(var(--danger))' }}>{icalError}</p>}
           <p className="text-xs text-muted-foreground leading-relaxed">
             Canvas → Calendar → <span className="text-foreground">Calendar Feed</span> (bottom of page)
           </p>

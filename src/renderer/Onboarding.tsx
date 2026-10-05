@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Calendar, Key, Shield, ArrowLeft, Bell } from 'lucide-react'
 import type { Course, CseSiteEntry } from '../shared/types'
+import { isValidIcalUrl, ICAL_URL_ERROR } from '../lib/icalUrl'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -217,6 +218,10 @@ export default function Onboarding() {
 
   async function connectIcal() {
     if (!icalUrl.trim()) return
+    if (!isValidIcalUrl(icalUrl)) {
+      setConnectError(ICAL_URL_ERROR)
+      return
+    }
     setConnecting(true)
     setConnectError('')
     try {
@@ -387,7 +392,7 @@ export default function Onboarding() {
 
               {screen === 'input-ical' && (
                 <InputIcal
-                  url={icalUrl} setUrl={setIcalUrl}
+                  url={icalUrl} setUrl={v => { setIcalUrl(v); setConnectError('') }}
                   connecting={connecting} error={connectError}
                   onBack={() => go('choose', -1)} onConnect={connectIcal}
                 />
