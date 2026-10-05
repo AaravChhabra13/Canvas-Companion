@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { format, formatDistanceToNowStrict, isToday } from 'date-fns'
+import { format, isToday } from 'date-fns'
 import { ExternalLink, Clock } from 'lucide-react'
 import { motion } from 'framer-motion'
 import type { Assignment } from '../shared/types'
+import { formatDueLabel } from '../lib/dueLabel'
 
 function getCourseColor(courseName: string): string {
   const colors = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899', '#14B8A6', '#EF4444', '#F97316']
@@ -257,7 +258,7 @@ export function AssignmentItem({
                 <Clock className="w-3 h-3 shrink-0" style={{ color: dueColor }} />
                 <span style={{ color: dueColor }}>
                   {format(due, 'MMM d, h:mm a')} · {overdue ? 'overdue ' : ''}
-                  {formatDistanceToNowStrict(due, { addSuffix: true })}
+                  {formatDueLabel(due)}
                 </span>
               </div>
             )}

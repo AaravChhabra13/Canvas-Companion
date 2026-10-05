@@ -98,8 +98,29 @@ export function icalTypeFromUid(uid: string): Assignment['type'] {
   return /^event-calendar-event-/i.test(uid) ? 'event' : 'assignment'
 }
 
+// Canvas exports 11:59 PM deadlines as date-only values (DTSTART;VALUE=DATE:20261007).
+// toJSDate() would turn those into midnight, so rebuild them as local 11:59 PM.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function icalDueDate(dtstart: any): Date {
+  if (dtstart.isDate) return new Date(dtstart.year, dtstart.month - 1, dtstart.day, 23, 59, 0, 0)
+  return dtstart.toJSDate() as Date
+}
+
+// Assignment UID gives the assignment ID; the URL property
+// (".../calendar?include_contexts=course_123...") gives the course ID
+export function icalAssignmentUrl(uid: string, eventUrl: string, baseUrl: string): string | null {
+  const assignmentId = uid.match(/^event-assignment-(\d+)/i)?.[1]
+  const courseId = eventUrl.match(/course_(\d+)/)?.[1]
+  const base = baseUrl.replace(/\/+$/, '')
+  if (!assignmentId || !courseId || !base) return null
+  return `${base}/courses/${courseId}/assignments/${assignmentId}`
+}
+
 async function fetchAssignmentsFromIcal(icalUrl: string, lookaheadDays: number): Promise<Assignment[]> {
-  const response = await axios.get<string>(normalizeIcalUrl(icalUrl), {
+  const feedUrl = normalizeIcalUrl(icalUrl)
+  // Links point at the school hosting the feed, whatever the Canvas URL setting says
+  const baseUrl = new URL(feedUrl).origin
+  const response = await axios.get<string>(feedUrl, {
     timeout: 15_000,
     headers: { 'User-Agent': 'CanvasDashboard/1.0' },
   })
@@ -125,7 +146,7 @@ async function fetchAssignmentsFromIcal(icalUrl: string, lookaheadDays: number):
       const dtstart = event.startDate
       if (!dtstart) continue
 
-      const dueDate = dtstart.toJSDate() as Date
+      const dueDate = icalDueDate(dtstart)
       const dueMs = dueDate.getTime()
       if (dueMs < windowStart || dueMs > windowEnd) continue
 
@@ -158,10 +179,17 @@ async function fetchAssignmentsFromIcal(icalUrl: string, lookaheadDays: number):
         courseName = courseName.replace(/<[^>]+>/g, '').trim() || 'Unknown Course'
       }
 
-      // Extract canvas URL from description
-      const descLines = description.split(/\r?\n/).map((l: string) => l.trim())
-      const urlLine = descLines.find((l: string) => /^https?:\/\//i.test(l))
-      if (urlLine) canvasUrl = urlLine
+      // Parsed URL property value, so folded (wrapped) feed lines are already joined
+      const eventUrl = String(event.component.getFirstPropertyValue('url') ?? '')
+      const assignmentUrl = icalAssignmentUrl(uid, eventUrl, baseUrl)
+      if (assignmentUrl) {
+        canvasUrl = assignmentUrl
+      } else {
+        // Fall back to the first link in the description
+        const descLines = description.split(/\r?\n/).map((l: string) => l.trim())
+        const urlLine = descLines.find((l: string) => /^https?:\/\//i.test(l))
+        if (urlLine) canvasUrl = urlLine
+      }
 
       assignments.push({
         id: uid,
