@@ -4,7 +4,11 @@ A macOS menu bar app that shows your Canvas LMS deadlines the moment you open yo
 
 > **Project status: paused.** The app is feature-complete, but development has stopped. In September 2026, UW IT stopped issuing Canvas API tokens to students, which removed the data access the app depends on at UW. The code is public as a portfolio piece and a reference for anyone building on the Canvas API.
 
-![Canvas Companion Home Page](image.png) ![Canvas Companion Courses Page](image-1.png)![Canvas Companion Calender Page](image-2.png)
+<p>
+  <img src="screenshots/main.png" width="32%" alt="Main panel">
+  <img src="screenshots/courses.png" width="32%" alt="Courses tab">
+  <img src="screenshots/calendar.png" width="32%" alt="Calendar tab">
+</p>
 
 ## Why I built it
 
